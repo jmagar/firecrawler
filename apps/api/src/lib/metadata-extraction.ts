@@ -5,7 +5,7 @@
  * Designed for integration with both transformer pipeline and vector storage service.
  */
 
-export interface GitHubRepositoryMetadata {
+interface GitHubRepositoryMetadata {
   repository_org: string;
   repository_name: string;
   file_path?: string;
@@ -14,20 +14,20 @@ export interface GitHubRepositoryMetadata {
   file_extension?: string;
 }
 
-export interface ContentTypeClassification {
+interface ContentTypeClassification {
   content_type: string;
   confidence: number;
   indicators: string[];
 }
 
-export interface DomainMetadata {
+interface DomainMetadata {
   domain: string;
   subdomain?: string;
   is_documentation_site: boolean;
   documentation_type?: "github" | "docs" | "api" | "wiki" | "blog" | "tutorial";
 }
 
-export interface DocumentMetadata {
+interface DocumentMetadata {
   title?: string;
   domain: string;
   word_count: number;
@@ -44,7 +44,7 @@ export interface DocumentMetadata {
 /**
  * Extracts GitHub repository information from URL
  */
-export function extractGitHubMetadata(
+function extractGitHubMetadata(
   url: string,
 ): GitHubRepositoryMetadata | null {
   try {
@@ -130,7 +130,7 @@ export function extractGitHubMetadata(
 /**
  * Detects content type based on URL patterns and content analysis
  */
-export function classifyContentType(
+function classifyContentType(
   url: string,
   content?: string,
 ): ContentTypeClassification {
@@ -274,7 +274,7 @@ export function classifyContentType(
 /**
  * Extracts domain and subdomain information with documentation site detection
  */
-export function extractDomainMetadata(url: string): DomainMetadata {
+function extractDomainMetadata(url: string): DomainMetadata {
   try {
     const urlObj = new URL(url);
     const hostname = urlObj.hostname.toLowerCase();
@@ -353,7 +353,7 @@ export function extractDomainMetadata(url: string): DomainMetadata {
 /**
  * Determines programming language from file extension and content
  */
-export function detectProgrammingLanguage(
+function detectProgrammingLanguage(
   filePath?: string,
   content?: string,
 ): string | undefined {
@@ -429,7 +429,7 @@ export function detectProgrammingLanguage(
 /**
  * Counts words in content (excluding code blocks and HTML)
  */
-export function countWords(content: string): number {
+function countWords(content: string): number {
   if (!content) return 0;
 
   // Remove code blocks
@@ -452,7 +452,7 @@ export function countWords(content: string): number {
 /**
  * Determines if a file is a code file based on extension and content
  */
-export function isCodeFile(filePath?: string, content?: string): boolean {
+function isCodeFile(filePath?: string, content?: string): boolean {
   if (!filePath && !content) return false;
 
   // Check by extension

@@ -11,7 +11,7 @@ import {
 } from "../../../lib/metadata-extraction";
 import { calculateEmbeddingCost } from "../../../lib/extract/usage/llm-cost";
 
-export class EmbeddingGenerationError extends Error {
+class EmbeddingGenerationError extends Error {
   public embeddings: boolean = true;
 
   constructor(

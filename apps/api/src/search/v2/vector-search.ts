@@ -15,13 +15,13 @@ import {
   VectorSearchResult as APIVectorSearchResult,
 } from "../../controllers/v2/types";
 
-export interface VectorSearchServiceOptions {
+interface VectorSearchServiceOptions {
   logger?: Logger;
   costTracking?: CostTracking;
   teamId: string;
 }
 
-export interface VectorSearchTiming {
+interface VectorSearchTiming {
   queryEmbeddingMs: number;
   vectorSearchMs: number;
   totalMs: number;
@@ -347,7 +347,7 @@ export function validateVectorSearchRequest(
 /**
  * Health check for vector search service
  */
-export async function vectorSearchHealthCheck(
+async function vectorSearchHealthCheck(
   logger: Logger = _logger,
 ): Promise<boolean> {
   const start = Date.now();

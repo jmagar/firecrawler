@@ -23,7 +23,7 @@ const MIN_SIMILARITY_THRESHOLD = parseFloat(
 );
 
 // Types for vector operations
-export interface VectorMetadata {
+interface VectorMetadata {
   title?: string;
   url?: string;
   domain?: string;
@@ -57,7 +57,7 @@ export interface VectorSearchResult {
   document?: Document;
 }
 
-export interface VectorStorageStats {
+interface VectorStorageStats {
   totalVectors: number;
   avgSimilarity: number;
   uniqueDomains: number;
@@ -67,7 +67,7 @@ export interface VectorStorageStats {
 /**
  * Extracts GitHub repository information from URL
  */
-export function extractGitHubInfo(url: string): {
+function extractGitHubInfo(url: string): {
   org?: string;
   repo?: string;
   filePath?: string;
@@ -88,7 +88,7 @@ export function extractGitHubInfo(url: string): {
 /**
  * Detects content type from URL and title
  */
-export function detectContentType(
+function detectContentType(
   url: string,
   title?: string,
   content?: string,
@@ -161,7 +161,7 @@ export function detectContentType(
 /**
  * Extracts domain from URL
  */
-export function extractDomain(url: string): string {
+function extractDomain(url: string): string {
   try {
     return new URL(url).hostname;
   } catch {
@@ -172,7 +172,7 @@ export function extractDomain(url: string): string {
 /**
  * Generates metadata from document
  */
-export function generateMetadata(document: Document): VectorMetadata {
+function generateMetadata(document: Document): VectorMetadata {
   const url = document.url || document.metadata?.url || "";
   const domain = extractDomain(url);
   const githubInfo = extractGitHubInfo(url);
@@ -401,7 +401,7 @@ export async function searchSimilarVectors(
 /**
  * Retrieves vector storage statistics
  */
-export async function getVectorStorageStats(
+async function getVectorStorageStats(
   _logger = logger,
 ): Promise<VectorStorageStats> {
   const start = Date.now();
@@ -448,7 +448,7 @@ export async function getVectorStorageStats(
 /**
  * Deletes a document vector by job ID
  */
-export async function deleteDocumentVector(
+async function deleteDocumentVector(
   jobId: string,
   _logger = logger,
 ): Promise<boolean> {
@@ -484,7 +484,7 @@ export async function deleteDocumentVector(
 /**
  * Health check for vector storage service
  */
-export async function vectorStorageHealthCheck(): Promise<boolean> {
+async function vectorStorageHealthCheck(): Promise<boolean> {
   const start = Date.now();
   try {
     // Check if table exists and is accessible
@@ -511,7 +511,7 @@ export async function vectorStorageHealthCheck(): Promise<boolean> {
 /**
  * Batch delete vectors older than specified days
  */
-export async function cleanupOldVectors(
+async function cleanupOldVectors(
   retentionDays: number = 30,
   _logger = logger,
 ): Promise<number> {
@@ -549,7 +549,7 @@ export async function cleanupOldVectors(
 /**
  * Graceful shutdown for vector storage service
  */
-export async function vectorStorageShutdown(): Promise<void> {
+async function vectorStorageShutdown(): Promise<void> {
   logger.info("Shutting down vector storage service", {
     module: "vector_storage",
   });

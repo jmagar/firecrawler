@@ -1,12 +1,12 @@
 import type { EmbeddingModel } from "ai";
 
-export interface TEIConfig {
+interface TEIConfig {
   baseURL: string;
   apiKey?: string;
   timeout?: number;
 }
 
-export interface TEIEmbeddingResponse {
+interface TEIEmbeddingResponse {
   embeddings: number[][];
 }
 

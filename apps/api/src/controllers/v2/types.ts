@@ -1538,7 +1538,7 @@ export const vectorSearchRequestSchema = z
   .strict(strictMessage);
 
 export type VectorSearchRequest = z.infer<typeof vectorSearchRequestSchema>;
-export type VectorSearchRequestInput = z.input<
+type VectorSearchRequestInput = z.input<
   typeof vectorSearchRequestSchema
 >;
 
