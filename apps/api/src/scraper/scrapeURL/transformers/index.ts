@@ -1,6 +1,6 @@
 import { parseMarkdown } from "../../../lib/html-to-markdown";
 import { Meta } from "..";
-import { Document } from "../../../controllers/v1/types";
+import { Document } from "../../../controllers/v2/types";
 import { htmlTransform } from "../lib/removeUnwantedElements";
 import { extractLinks } from "../lib/extractLinks";
 import { extractImages } from "../lib/extractImages";
@@ -10,6 +10,7 @@ import { uploadScreenshot } from "./uploadScreenshot";
 import { removeBase64Images } from "./removeBase64Images";
 import { performAgent } from "./agent";
 import { performAttributes } from "./performAttributes";
+import { performEmbeddings } from "./performEmbeddings";
 
 import { deriveDiff } from "./diff";
 import { useIndex } from "../../../services/index";
@@ -173,6 +174,7 @@ function coerceFieldsToFormats(meta: Meta, document: Document): Document {
   const hasJson = hasFormatOfType(meta.options.formats, "json");
   const hasScreenshot = hasFormatOfType(meta.options.formats, "screenshot");
   const hasSummary = hasFormatOfType(meta.options.formats, "summary");
+  const hasEmbeddings = hasFormatOfType(meta.options.formats, "embeddings");
 
   if (!hasMarkdown && document.markdown !== undefined) {
     delete document.markdown;
@@ -287,6 +289,18 @@ function coerceFieldsToFormats(meta: Meta, document: Document): Document {
     );
   }
 
+  // Handle embeddings format - embeddings metadata is stored in document.metadata.embeddings
+  if (!hasEmbeddings && document.metadata?.embeddings !== undefined) {
+    meta.logger.warn(
+      "Removed embeddings metadata from Document because it wasn't in formats -- this is wasteful and indicates a bug.",
+    );
+    delete document.metadata.embeddings;
+  } else if (hasEmbeddings && document.metadata?.embeddings === undefined) {
+    meta.logger.warn(
+      "Request had format embeddings, but there was no embeddings metadata in the result.",
+    );
+  }
+
   if (!hasChangeTracking && document.changeTracking !== undefined) {
     meta.logger.warn(
       "Removed changeTracking from Document because it wasn't in formats -- this is extremely wasteful and indicates a bug.",
@@ -340,6 +354,7 @@ const transformerStack: Transformer[] = [
   performSummary,
   performAttributes,
   performAgent,
+  performEmbeddings,
   deriveDiff,
   coerceFieldsToFormats,
   removeBase64Images,

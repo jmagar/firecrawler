@@ -7,6 +7,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { fireworks } from "@ai-sdk/fireworks";
 import { deepinfra } from "@ai-sdk/deepinfra";
 import { createVertex } from "@ai-sdk/google-vertex";
+import { createTEI } from "./providers/tei-provider";
 
 type Provider =
   | "openai"
@@ -17,8 +18,11 @@ type Provider =
   | "openrouter"
   | "fireworks"
   | "deepinfra"
-  | "vertex";
-const defaultProvider: Provider = process.env.OLLAMA_BASE_URL
+  | "vertex"
+  | "tei";
+const defaultProvider: Provider = process.env.TEI_URL
+  ? "tei"
+  : process.env.OLLAMA_BASE_URL
   ? "ollama"
   : "openai";
 
@@ -51,6 +55,10 @@ const providerList: Record<Provider, any> = {
       : {
           keyFile: "./gke-key.json",
         },
+  }),
+  tei: createTEI({
+    baseURL: process.env.TEI_URL || "http://localhost:8080",
+    apiKey: process.env.TEI_API_KEY,
   }),
 };
 

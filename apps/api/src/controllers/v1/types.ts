@@ -25,7 +25,8 @@ type Format =
   | "extract"
   | "json"
   | "summary"
-  | "changeTracking";
+  | "changeTracking"
+  | "embeddings";
 
 export const url = z.preprocess(
   x => {
@@ -311,6 +312,7 @@ const baseScrapeOptions = z
         "json",
         "summary",
         "changeTracking",
+        "embeddings",
       ])
       .array()
       .optional()
@@ -1353,6 +1355,7 @@ export const searchRequestSchema = z
               "screenshot@fullPage",
               "extract",
               "json",
+              "embeddings",
             ]),
           )
           .default([]),

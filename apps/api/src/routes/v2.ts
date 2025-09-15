@@ -18,6 +18,7 @@ import { concurrencyCheckController } from "../controllers/v2/concurrency-check"
 import { crawlStatusWSController } from "../controllers/v2/crawl-status-ws";
 import { extractController } from "../controllers/v2/extract";
 import { extractStatusController } from "../controllers/v2/extract-status";
+import { vectorSearchController } from "../controllers/v2/vector-search";
 import {
   authMiddleware,
   checkCreditsMiddleware,
@@ -41,6 +42,15 @@ v2Router.post(
   checkCreditsMiddleware(),
   blocklistMiddleware,
   wrap(searchController),
+);
+
+v2Router.post(
+  "/vector-search",
+  authMiddleware(RateLimiterMode.Search),
+  countryCheck,
+  checkCreditsMiddleware(),
+  blocklistMiddleware,
+  wrap(vectorSearchController),
 );
 
 v2Router.post(

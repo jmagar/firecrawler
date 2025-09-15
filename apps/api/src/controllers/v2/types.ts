@@ -236,6 +236,7 @@ export type FormatObject =
   | { type: "links" }
   | { type: "images" }
   | { type: "summary" }
+  | { type: "embeddings" }
   | JsonFormatWithOptions
   | ChangeTrackingFormatWithOptions
   | ScreenshotFormatWithOptions
@@ -329,6 +330,7 @@ const baseScrapeOptions = z
             z.object({ type: z.literal("links") }),
             z.object({ type: z.literal("images") }),
             z.object({ type: z.literal("summary") }),
+            z.object({ type: z.literal("embeddings") }),
             jsonFormatWithOptions,
             changeTrackingFormatWithOptions,
             screenshotFormatWithOptions,
@@ -766,6 +768,15 @@ export type Document = {
     cacheState?: "hit" | "miss";
     cachedAt?: string;
     creditsUsed?: number;
+    embeddings?: {
+      generated: boolean;
+      model: string;
+      provider: string;
+      dimension: number;
+      contentLength: number;
+      generatedAt: string;
+      metadata: Record<string, any>;
+    };
     // [key: string]: string | string[] | number | { smartScrape: number; other: number; total: number } | undefined;
   };
   serpResults?: {
@@ -1442,6 +1453,116 @@ export type TokenUsage = {
   step?: string;
   model?: string;
 };
+
+// Vector Search Types
+export const vectorSearchRequestSchema = z
+  .object({
+    query: z.string().min(1).max(1000).describe("Natural language search query"),
+    limit: z
+      .number()
+      .int()
+      .positive()
+      .finite()
+      .max(100)
+      .optional()
+      .default(10)
+      .describe("Maximum number of results to return"),
+    offset: z
+      .number()
+      .int()
+      .nonnegative()
+      .finite()
+      .optional()
+      .default(0)
+      .describe("Number of results to skip for pagination"),
+    threshold: z
+      .number()
+      .min(0)
+      .max(1)
+      .optional()
+      .default(0.7)
+      .describe("Minimum similarity threshold (0-1, higher is more similar)"),
+    includeContent: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe("Whether to include full page content in results"),
+    filters: z
+      .object({
+        domain: z.string().optional().describe("Filter by specific domain"),
+        repository: z.string().optional().describe("Filter by GitHub repository name"),
+        repositoryOrg: z.string().optional().describe("Filter by GitHub organization"),
+        contentType: z
+          .enum(["readme", "api-docs", "tutorial", "configuration", "code", "other"])
+          .optional()
+          .describe("Filter by content type"),
+        dateRange: z
+          .object({
+            from: z
+              .string()
+              .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/)
+              .optional()
+              .describe("Start date (ISO 8601 format)"),
+            to: z
+              .string()
+              .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/)
+              .optional()
+              .describe("End date (ISO 8601 format)"),
+          })
+          .optional()
+          .describe("Filter by scrape date range"),
+      })
+      .optional()
+      .default({})
+      .describe("Filtering options for search results"),
+    origin: z.string().optional().default("api"),
+    integration: integrationSchema.optional().transform(val => val || null),
+  })
+  .strict(strictMessage);
+
+export type VectorSearchRequest = z.infer<typeof vectorSearchRequestSchema>;
+export type VectorSearchRequestInput = z.input<typeof vectorSearchRequestSchema>;
+
+export type VectorSearchResult = {
+  id: string;
+  url: string;
+  title?: string;
+  content?: string;
+  similarity: number;
+  metadata: {
+    sourceURL: string;
+    scrapedAt: string;
+    domain?: string;
+    repositoryName?: string;
+    repositoryOrg?: string;
+    filePath?: string;
+    branchVersion?: string;
+    contentType?: string;
+    wordCount?: number;
+    [key: string]: any;
+  };
+};
+
+export type VectorSearchResponse =
+  | ErrorResponse
+  | {
+      success: true;
+      data: {
+        results: VectorSearchResult[];
+        query: string;
+        totalResults: number;
+        limit: number;
+        offset: number;
+        threshold: number;
+        timing: {
+          queryEmbeddingMs: number;
+          vectorSearchMs: number;
+          totalMs: number;
+        };
+      };
+      creditsUsed: number;
+      warning?: string;
+    };
 
 const generateLLMsTextRequestSchema = z.object({
   url: url.describe("The URL to generate text from"),

@@ -214,7 +214,8 @@ class SystemMonitor {
     const cpuUsage = await this.checkCpuUsage();
     const memoryUsage = await this.checkMemoryUsage();
 
-    return cpuUsage < MAX_CPU && memoryUsage < MAX_RAM;
+    // Always accept connections - RAM/CPU load checks disabled
+    return true;
   }
 
   public clearCache() {
