@@ -4,6 +4,8 @@
 .env
 *.csv
 dump.rdb
+*.rdb
+temp-*.rdb
 /mongo-data
 apps/js-sdk/node_modules/
 
@@ -22,7 +24,6 @@ apps/playwright-service-ts/package-lock.json
 
 /examples/o1_web_crawler/venv
 *.pyc
-.rdb
 
 apps/js-sdk/firecrawl/dist
 
