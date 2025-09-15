@@ -31,7 +31,7 @@ x-common-env: &common-env
   ENABLE_VECTOR_STORAGE: ${ENABLE_VECTOR_STORAGE:-true}
   VECTOR_STORAGE_ASYNC: ${VECTOR_STORAGE_ASYNC:-true}
   MIN_SIMILARITY_THRESHOLD: ${MIN_SIMILARITY_THRESHOLD:-0.7}
-  VECTOR_DIMENSION: ${VECTOR_DIMENSION:-384}
+  VECTOR_DIMENSION: ${VECTOR_DIMENSION:-1024}
   BULL_AUTH_KEY: ${BULL_AUTH_KEY}
   SELF_HOSTED_WEBHOOK_URL: ${SELF_HOSTED_WEBHOOK_URL}
   LOGGING_LEVEL: ${LOGGING_LEVEL}
@@ -40,6 +40,7 @@ x-common-env: &common-env
   SEARXNG_CATEGORIES: ${SEARXNG_CATEGORIES}
   MAX_CPU: ${MAX_CPU}
   MAX_RAM: ${MAX_RAM}
+  DEFAULT_CRAWL_LANGUAGE: ${DEFAULT_CRAWL_LANGUAGE}
 
 services:
   playwright-service:
@@ -89,6 +90,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
+    volumes:
+      - nuq_postgres_data:/var/lib/postgresql/data
     networks:
       - backend
     ports:
@@ -102,3 +105,7 @@ services:
 networks:
   backend:
     driver: bridge
+
+volumes:
+  nuq_postgres_data:
+    driver: local

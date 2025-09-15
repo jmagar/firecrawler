@@ -293,6 +293,62 @@ describe("Crawl tests", () => {
     5 * scrapeTimeout,
   );
 
+  it.concurrent(
+    "excludePaths filters out non-English language paths effectively",
+    async () => {
+      const res = await crawl(
+        {
+          url: "https://docs.anthropic.com",
+          excludePaths: [
+            "^/de/.*",
+            "^/es/.*",
+            "^/fr/.*",
+            "^/it/.*",
+            "^/pt/.*",
+            "^/ru/.*",
+            "^/zh-TW/.*",
+            "^/zh/.*",
+            "^/ja/.*",
+            "^/ko/.*",
+            "^/ar/.*",
+            "^/id/.*",
+          ],
+          limit: 10,
+        },
+        identity,
+      );
+
+      expect(res.success).toBe(true);
+      if (res.success) {
+        expect(res.completed).toBeGreaterThan(0);
+        for (const page of res.data) {
+          const url = new URL(page.metadata.url ?? page.metadata.sourceURL!);
+          const pathname = url.pathname;
+
+          // Verify no language-specific paths are included
+          const languagePrefixes = [
+            "/de/",
+            "/es/",
+            "/fr/",
+            "/it/",
+            "/pt/",
+            "/ru/",
+            "/zh-TW/",
+            "/zh/",
+            "/ja/",
+            "/ko/",
+            "/ar/",
+            "/id/",
+          ];
+          for (const prefix of languagePrefixes) {
+            expect(pathname.startsWith(prefix)).toBe(false);
+          }
+        }
+      }
+    },
+    10 * scrapeTimeout,
+  );
+
   if (
     !process.env.TEST_SUITE_SELF_HOSTED ||
     process.env.OPENAI_API_KEY ||

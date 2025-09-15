@@ -23,8 +23,8 @@ type Provider =
 const defaultProvider: Provider = process.env.TEI_URL
   ? "tei"
   : process.env.OLLAMA_BASE_URL
-  ? "ollama"
-  : "openai";
+    ? "ollama"
+    : "openai";
 
 const providerList: Record<Provider, any> = {
   openai: createOpenAI({

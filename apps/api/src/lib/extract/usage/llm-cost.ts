@@ -38,7 +38,9 @@ export function calculateEmbeddingCost(
     const pricing = modelPrices[modelName] as ModelPricing;
 
     if (!pricing) {
-      logger.error(`No pricing information found for embedding model: ${modelName}`);
+      logger.error(
+        `No pricing information found for embedding model: ${modelName}`,
+      );
       return 0;
     }
 
@@ -55,7 +57,7 @@ export function calculateEmbeddingCost(
     // Calculate cost based on input length
     // Approximate token count using character/token ratio
     const approximateTokens = Math.ceil(inputText.length * tokenPerCharacter);
-    
+
     let totalCost = 0;
 
     // Add per-request cost if applicable

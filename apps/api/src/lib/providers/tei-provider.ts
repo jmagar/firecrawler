@@ -35,7 +35,7 @@ export function createTEI(config: TEIConfig): TEIProvider {
 
       async doEmbed({ values, abortSignal }) {
         const url = `${baseURL}/embed`;
-        
+
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
         };
@@ -65,9 +65,11 @@ export function createTEI(config: TEIConfig): TEIProvider {
           clearTimeout(timeoutId);
 
           if (!response.ok) {
-            const errorText = await response.text().catch(() => "Unknown error");
+            const errorText = await response
+              .text()
+              .catch(() => "Unknown error");
             throw new Error(
-              `TEI embedding request failed: ${response.status} ${response.statusText} - ${errorText}`
+              `TEI embedding request failed: ${response.status} ${response.statusText} - ${errorText}`,
             );
           }
 
@@ -77,12 +79,14 @@ export function createTEI(config: TEIConfig): TEIProvider {
           const embeddings = Array.isArray(data) ? data : data.embeddings;
 
           if (!embeddings || !Array.isArray(embeddings)) {
-            throw new Error("Invalid response format from TEI: missing or invalid embeddings array");
+            throw new Error(
+              "Invalid response format from TEI: missing or invalid embeddings array",
+            );
           }
 
           if (embeddings.length !== values.length) {
             throw new Error(
-              `TEI returned ${embeddings.length} embeddings but expected ${values.length}`
+              `TEI returned ${embeddings.length} embeddings but expected ${values.length}`,
             );
           }
 
@@ -94,14 +98,14 @@ export function createTEI(config: TEIConfig): TEIProvider {
           };
         } catch (error) {
           clearTimeout(timeoutId);
-          
+
           if (error instanceof Error) {
             if (error.name === "AbortError") {
               throw new Error("TEI embedding request timeout");
             }
             throw error;
           }
-          
+
           throw new Error(`TEI embedding request failed: ${String(error)}`);
         }
       },

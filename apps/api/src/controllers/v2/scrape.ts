@@ -14,6 +14,7 @@ import { hasFormatOfType } from "../../lib/format-utils";
 import { TransportableError } from "../../lib/error";
 import { scrapeQueue } from "../../services/worker/nuq";
 import { checkPermissions } from "../../lib/permissions";
+import { shouldExcludeUrl } from "../../lib/language-filter";
 
 export async function scrapeController(
   req: RequestWithAuth<{}, ScrapeResponse, ScrapeRequest>,
@@ -145,9 +146,36 @@ export async function scrapeController(
     }
   }
 
+  // Check for language mismatch warning
+  const defaultLanguage = process.env.DEFAULT_CRAWL_LANGUAGE;
+  let languageMismatchWarning: string | undefined;
+  
+  if (defaultLanguage && defaultLanguage.toLowerCase() !== 'all') {
+    try {
+      if (shouldExcludeUrl(req.body.url, defaultLanguage)) {
+        languageMismatchWarning = `URL may contain content in a language other than '${defaultLanguage}'. Consider reviewing the content language or adjusting the DEFAULT_CRAWL_LANGUAGE setting.`;
+        
+        logger.info("Language mismatch warning for scrape request", {
+          url: req.body.url,
+          allowedLanguage: defaultLanguage,
+          warning: languageMismatchWarning
+        });
+      }
+    } catch (error) {
+      logger.warn("Failed to check language mismatch for scrape request", {
+        url: req.body.url,
+        defaultLanguage,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
   return res.status(200).json({
     success: true,
     data: doc,
     scrape_id: origin?.includes("website") ? jobId : undefined,
+    ...(languageMismatchWarning && {
+      warning: languageMismatchWarning
+    }),
   });
 }

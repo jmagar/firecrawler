@@ -40,11 +40,12 @@ async function generateQueryEmbedding(
   try {
     // Determine provider based on MODEL_EMBEDDING_NAME
     const modelName = process.env.MODEL_EMBEDDING_NAME;
-    const provider = modelName && modelName.startsWith("sentence-transformers/")
-      ? "tei" as const
-      : undefined;
-    
-    const finalModelName = provider 
+    const provider =
+      modelName && modelName.startsWith("sentence-transformers/")
+        ? ("tei" as const)
+        : undefined;
+
+    const finalModelName = provider
       ? modelName || "sentence-transformers/all-MiniLM-L6-v2"
       : "text-embedding-3-small";
 
@@ -57,7 +58,7 @@ async function generateQueryEmbedding(
     });
 
     const { embedding } = await embed({
-      model: provider 
+      model: provider
         ? getEmbeddingModel(finalModelName, provider)
         : getEmbeddingModel(finalModelName),
       value: query,
@@ -73,7 +74,7 @@ async function generateQueryEmbedding(
     // Track embedding costs if cost tracking is provided
     if (costTracking) {
       const cost = calculateEmbeddingCost(finalModelName, query);
-      
+
       costTracking.addCall({
         type: "other",
         metadata: {
@@ -109,7 +110,9 @@ async function generateQueryEmbedding(
       duration,
       queryLength: query.length,
     });
-    throw new Error(`Failed to generate query embedding: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to generate query embedding: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -118,7 +121,7 @@ async function generateQueryEmbedding(
  */
 function transformFilters(request: VectorSearchRequest): VectorSearchOptions {
   const { filters, limit, offset, threshold } = request;
-  
+
   const options: VectorSearchOptions = {
     limit: limit,
     minSimilarity: threshold,
@@ -168,7 +171,9 @@ function transformResults(
         repositoryOrg: result.metadata.repository_org,
         filePath: result.metadata.file_path,
         contentType: result.metadata.content_type,
-        wordCount: result.metadata.token_count ? Math.floor(result.metadata.token_count * 0.75) : undefined, // Convert tokens to approximate words
+        wordCount: result.metadata.token_count
+          ? Math.floor(result.metadata.token_count * 0.75)
+          : undefined, // Convert tokens to approximate words
       },
     };
 
@@ -212,7 +217,7 @@ export async function vectorSearch(
 
     // Step 2: Transform filters and add pagination
     const searchOptions = transformFilters(request);
-    
+
     // Implement offset by increasing limit and slicing results
     // This is a simple approach; for large offsets, a cursor-based approach would be more efficient
     if (request.offset > 0) {
@@ -221,19 +226,26 @@ export async function vectorSearch(
 
     // Step 3: Perform vector similarity search
     const searchStart = Date.now();
-    const vectorResults = await searchSimilarVectors(queryEmbedding, searchOptions, logger);
+    const vectorResults = await searchSimilarVectors(
+      queryEmbedding,
+      searchOptions,
+      logger,
+    );
     vectorSearchTime = Date.now() - searchStart;
 
     // Step 4: Apply offset by slicing results
-    const offsetResults = request.offset > 0 
-      ? vectorResults.slice(request.offset)
-      : vectorResults;
+    const offsetResults =
+      request.offset > 0 ? vectorResults.slice(request.offset) : vectorResults;
 
     // Step 5: Limit results to requested amount
     const limitedResults = offsetResults.slice(0, request.limit);
 
     // Step 6: Transform results to API format
-    const apiResults = transformResults(limitedResults, request, request.offset);
+    const apiResults = transformResults(
+      limitedResults,
+      request,
+      request.offset,
+    );
 
     const totalTime = Date.now() - startTime;
     const timing: VectorSearchTiming = {
@@ -297,7 +309,9 @@ export async function vectorSearch(
 /**
  * Validates vector search request parameters
  */
-export function validateVectorSearchRequest(request: VectorSearchRequest): string[] {
+export function validateVectorSearchRequest(
+  request: VectorSearchRequest,
+): string[] {
   const errors: string[] = [];
 
   if (!request.query || request.query.trim().length === 0) {
@@ -333,9 +347,11 @@ export function validateVectorSearchRequest(request: VectorSearchRequest): strin
 /**
  * Health check for vector search service
  */
-export async function vectorSearchHealthCheck(logger: Logger = _logger): Promise<boolean> {
+export async function vectorSearchHealthCheck(
+  logger: Logger = _logger,
+): Promise<boolean> {
   const start = Date.now();
-  
+
   try {
     // Test embedding generation with a simple query
     const testOptions: VectorSearchServiceOptions = {
@@ -344,13 +360,13 @@ export async function vectorSearchHealthCheck(logger: Logger = _logger): Promise
     };
 
     await generateQueryEmbedding("test query", testOptions);
-    
+
     logger.info("Vector search health check passed", {
       module: "vector_search/metrics",
       method: "vectorSearchHealthCheck",
       duration: Date.now() - start,
     });
-    
+
     return true;
   } catch (error) {
     logger.error("Vector search health check failed", {
@@ -359,7 +375,7 @@ export async function vectorSearchHealthCheck(logger: Logger = _logger): Promise
       error: error instanceof Error ? error.message : String(error),
       duration: Date.now() - start,
     });
-    
+
     return false;
   }
 }

@@ -1457,7 +1457,11 @@ export type TokenUsage = {
 // Vector Search Types
 export const vectorSearchRequestSchema = z
   .object({
-    query: z.string().min(1).max(1000).describe("Natural language search query"),
+    query: z
+      .string()
+      .min(1)
+      .max(1000)
+      .describe("Natural language search query"),
     limit: z
       .number()
       .int()
@@ -1490,10 +1494,23 @@ export const vectorSearchRequestSchema = z
     filters: z
       .object({
         domain: z.string().optional().describe("Filter by specific domain"),
-        repository: z.string().optional().describe("Filter by GitHub repository name"),
-        repositoryOrg: z.string().optional().describe("Filter by GitHub organization"),
+        repository: z
+          .string()
+          .optional()
+          .describe("Filter by GitHub repository name"),
+        repositoryOrg: z
+          .string()
+          .optional()
+          .describe("Filter by GitHub organization"),
         contentType: z
-          .enum(["readme", "api-docs", "tutorial", "configuration", "code", "other"])
+          .enum([
+            "readme",
+            "api-docs",
+            "tutorial",
+            "configuration",
+            "code",
+            "other",
+          ])
           .optional()
           .describe("Filter by content type"),
         dateRange: z
@@ -1521,7 +1538,9 @@ export const vectorSearchRequestSchema = z
   .strict(strictMessage);
 
 export type VectorSearchRequest = z.infer<typeof vectorSearchRequestSchema>;
-export type VectorSearchRequestInput = z.input<typeof vectorSearchRequestSchema>;
+export type VectorSearchRequestInput = z.input<
+  typeof vectorSearchRequestSchema
+>;
 
 export type VectorSearchResult = {
   id: string;

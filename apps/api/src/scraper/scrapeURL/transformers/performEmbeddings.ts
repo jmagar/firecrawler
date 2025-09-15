@@ -5,13 +5,19 @@ import { logger } from "../../../lib/logger";
 import { getEmbeddingModel } from "../../../lib/generic-ai";
 import { hasFormatOfType } from "../../../lib/format-utils";
 import { storeDocumentVector } from "../../../services/vector-storage";
-import { extractDocumentMetadata, formatMetadataForStorage } from "../../../lib/metadata-extraction";
+import {
+  extractDocumentMetadata,
+  formatMetadataForStorage,
+} from "../../../lib/metadata-extraction";
 import { calculateEmbeddingCost } from "../../../lib/extract/usage/llm-cost";
 
 export class EmbeddingGenerationError extends Error {
   public embeddings: boolean = true;
-  
-  constructor(message: string, public originalError?: Error) {
+
+  constructor(
+    message: string,
+    public originalError?: Error,
+  ) {
     super(`Embedding generation failed: ${message}`);
     this.name = "EmbeddingGenerationError";
   }
@@ -25,11 +31,16 @@ export async function performEmbeddings(
   meta: Meta,
   document: Document,
 ): Promise<Document> {
-  // Check if embeddings format is requested
-  const hasEmbeddings = hasFormatOfType(meta.options.formats, "embeddings");
-  if (!hasEmbeddings) {
-    return document;
+  // Check if vector storage is enabled first
+  const enableVectorStorage = process.env.ENABLE_VECTOR_STORAGE === "true";
+  if (!enableVectorStorage) {
+    // Only check for explicit embeddings format if vector storage is disabled
+    const hasEmbeddings = hasFormatOfType(meta.options.formats, "embeddings");
+    if (!hasEmbeddings) {
+      return document;
+    }
   }
+  // If ENABLE_VECTOR_STORAGE=true, always generate embeddings regardless of format
 
   const start = Date.now();
   const _logger = meta.logger.child({
@@ -46,32 +57,28 @@ export async function performEmbeddings(
         hasHtml: !!document.html,
         hasRawHtml: !!document.rawHtml,
       });
-      
+
       // Don't fail the entire scrape - just skip embeddings
-      document.warning = "No content available for embedding generation." + 
+      document.warning =
+        "No content available for embedding generation." +
         (document.warning ? " " + document.warning : "");
       return document;
     }
 
-    // Check if vector storage is enabled
-    const enableVectorStorage = process.env.ENABLE_VECTOR_STORAGE === "true";
-    if (!enableVectorStorage) {
-      _logger.debug("Vector storage disabled, skipping embedding generation");
-      document.warning = "Vector storage is disabled." + 
-        (document.warning ? " " + document.warning : "");
-      return document;
-    }
+    // Vector storage enablement already checked at function start
 
     // Determine embedding model and provider
     const modelName = process.env.MODEL_EMBEDDING_NAME;
-    const provider = modelName && (
-      modelName.startsWith("sentence-transformers/") || 
-      modelName.startsWith("Qwen/") ||
-      modelName.startsWith("BAAI/") ||
-      modelName.startsWith("intfloat/")
-    ) ? "tei" as const : undefined;
-    
-    const finalModelName = provider 
+    const provider =
+      modelName &&
+      (modelName.startsWith("sentence-transformers/") ||
+        modelName.startsWith("Qwen/") ||
+        modelName.startsWith("BAAI/") ||
+        modelName.startsWith("intfloat/"))
+        ? ("tei" as const)
+        : undefined;
+
+    const finalModelName = provider
       ? modelName || "sentence-transformers/all-MiniLM-L6-v2"
       : "text-embedding-3-small";
 
@@ -83,10 +90,14 @@ export async function performEmbeddings(
     });
 
     // Truncate content if it's too long (embedding models have token limits)
-    const maxContentLength = parseInt(process.env.MAX_EMBEDDING_CONTENT_LENGTH || "50000", 10);
-    const truncatedContent = content.length > maxContentLength 
-      ? content.substring(0, maxContentLength)
-      : content;
+    const maxContentLength = parseInt(
+      process.env.MAX_EMBEDDING_CONTENT_LENGTH || "50000",
+      10,
+    );
+    const truncatedContent =
+      content.length > maxContentLength
+        ? content.substring(0, maxContentLength)
+        : content;
 
     if (content.length > maxContentLength) {
       _logger.warn("Content truncated for embedding generation", {
@@ -94,15 +105,16 @@ export async function performEmbeddings(
         truncatedLength: truncatedContent.length,
         maxLength: maxContentLength,
       });
-      
-      document.warning = `Content was truncated to ${maxContentLength} characters for embedding generation.` + 
+
+      document.warning =
+        `Content was truncated to ${maxContentLength} characters for embedding generation.` +
         (document.warning ? " " + document.warning : "");
     }
 
     // Generate embedding using AI SDK
     const embeddingStart = Date.now();
     const { embedding } = await embed({
-      model: provider 
+      model: provider
         ? getEmbeddingModel(finalModelName, provider)
         : getEmbeddingModel(finalModelName),
       value: truncatedContent,
@@ -127,7 +139,7 @@ export async function performEmbeddings(
     // Track embedding costs
     if (meta.costTracking) {
       const cost = calculateEmbeddingCost(finalModelName, truncatedContent);
-      
+
       meta.costTracking.addCall({
         type: "other",
         metadata: {
@@ -154,7 +166,7 @@ export async function performEmbeddings(
     const documentMetadata = extractDocumentMetadata(
       document.url || document.metadata?.url || "",
       truncatedContent,
-      document.title || document.metadata?.title
+      document.title || document.metadata?.title,
     );
 
     // Store vector in PostgreSQL if enabled
@@ -170,12 +182,19 @@ export async function performEmbeddings(
       });
     } catch (vectorError) {
       // Vector storage failure shouldn't break the scraping process
-      _logger.error("Failed to store vector, continuing without vector storage", {
-        error: vectorError instanceof Error ? vectorError.message : String(vectorError),
-        vectorDimension: embedding.length,
-      });
-      
-      document.warning = "Vector storage failed but embedding was generated." + 
+      _logger.error(
+        "Failed to store vector, continuing without vector storage",
+        {
+          error:
+            vectorError instanceof Error
+              ? vectorError.message
+              : String(vectorError),
+          vectorDimension: embedding.length,
+        },
+      );
+
+      document.warning =
+        "Vector storage failed but embedding was generated." +
         (document.warning ? " " + document.warning : "");
     }
 
@@ -205,11 +224,10 @@ export async function performEmbeddings(
     });
 
     return document;
-
   } catch (error) {
     const duration = Date.now() - start;
     const errorMessage = error instanceof Error ? error.message : String(error);
-    
+
     _logger.error("Embedding generation failed", {
       error: errorMessage,
       duration,
@@ -218,12 +236,16 @@ export async function performEmbeddings(
 
     // Following the pattern from other AI transformers - don't fail the entire scrape
     // Just add a warning and continue
-    document.warning = `Embedding generation failed: ${errorMessage}` + 
+    document.warning =
+      `Embedding generation failed: ${errorMessage}` +
       (document.warning ? " " + document.warning : "");
 
     // For debugging purposes, you might want to throw in development
     if (process.env.NODE_ENV === "development") {
-      throw new EmbeddingGenerationError(errorMessage, error instanceof Error ? error : undefined);
+      throw new EmbeddingGenerationError(
+        errorMessage,
+        error instanceof Error ? error : undefined,
+      );
     }
 
     return document;
