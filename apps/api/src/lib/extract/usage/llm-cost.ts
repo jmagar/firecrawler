@@ -8,6 +8,8 @@ interface ModelPricing {
   output_cost_per_token?: number;
   input_cost_per_request?: number;
   mode: string;
+  output_vector_size?: number;
+  litellm_provider?: string;
 }
 const tokenPerCharacter = 0.5;
 const baseTokenCost = 300;
@@ -26,6 +28,51 @@ export function estimateTotalCost(tokenUsage: TokenUsage[]): number {
   return tokenUsage.reduce((total, usage) => {
     return total + estimateCost(usage);
   }, 0);
+}
+
+export function calculateEmbeddingCost(
+  modelName: string,
+  inputText: string,
+): number {
+  try {
+    const pricing = modelPrices[modelName] as ModelPricing;
+
+    if (!pricing) {
+      logger.error(`No pricing information found for embedding model: ${modelName}`);
+      return 0;
+    }
+
+    if (pricing.mode !== "embedding") {
+      logger.error(`Model ${modelName} is not an embedding model`);
+      return 0;
+    }
+
+    // For TEI models (which are typically free/local), return 0
+    if (pricing.litellm_provider === "tei") {
+      return 0;
+    }
+
+    // Calculate cost based on input length
+    // Approximate token count using character/token ratio
+    const approximateTokens = Math.ceil(inputText.length * tokenPerCharacter);
+    
+    let totalCost = 0;
+
+    // Add per-request cost if applicable
+    if (pricing.input_cost_per_request) {
+      totalCost += pricing.input_cost_per_request;
+    }
+
+    // Add token-based input cost
+    if (pricing.input_cost_per_token) {
+      totalCost += approximateTokens * pricing.input_cost_per_token;
+    }
+
+    return Number(totalCost.toFixed(7));
+  } catch (error) {
+    logger.error(`Error calculating embedding cost: ${error}`);
+    return 0;
+  }
 }
 
 function estimateCost(tokenUsage: TokenUsage): number {

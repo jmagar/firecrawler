@@ -3,11 +3,12 @@
 ARG PG_MAJOR=17
 FROM postgres:${PG_MAJOR}
 
-# Install pg_cron for the specified Postgres major version
+# Install pg_cron and pgvector for the specified Postgres major version
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        postgresql-${PG_MAJOR}-cron; \
+        postgresql-${PG_MAJOR}-cron \
+        postgresql-${PG_MAJOR}-pgvector; \
     rm -rf /var/lib/apt/lists/*
 
 # Ensure pg_cron is preloaded on first startup by modifying the initdb template
@@ -17,5 +18,7 @@ RUN set -eux; \
     sed -ri "s/^#?shared_preload_libraries\s*=.*/shared_preload_libraries = 'pg_cron'/" "$conf_sample"; \
     printf "\n# Added for pg_cron\ncron.database_name = 'postgres'\n" >> "$conf_sample"
 
-# Copy nuq.sql so it is executed as part of the initdb sequence
+# Copy nuq.sql and migrations so they are executed as part of the initdb sequence
 COPY nuq.sql /docker-entrypoint-initdb.d/010-nuq.sql
+COPY migrations/001_add_vector_support.sql /docker-entrypoint-initdb.d/020-vector-support.sql
+COPY migrations/002_create_document_vectors.sql /docker-entrypoint-initdb.d/030-document-vectors.sql

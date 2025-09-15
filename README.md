@@ -74,6 +74,7 @@ To use the API, you need to sign up on [Firecrawl](https://firecrawl.dev) and ge
 - [**Crawl**](#crawling): scrapes all the URLs of a web page and return content in LLM-ready format
 - [**Map**](#map): input a website and get all the website urls - extremely fast
 - [**Search**](#search): search the web and get full content from results
+- [**Vector Search**](#vector-search-self-hosted): semantic search through your crawled content using embeddings (self-hosted)
 - [**Extract**](#extract): get structured data from single page, multiple pages or entire websites with AI.
 
 ### Powerful Capabilities
@@ -299,6 +300,59 @@ curl -X POST https://api.firecrawl.dev/v2/search \
     }
   }'
 ```
+
+### Vector Search (Self-Hosted)
+
+Perform semantic search through your crawled content using vector embeddings. This feature requires self-hosted deployment with PostgreSQL pgvector and either TEI or OpenAI for embeddings.
+
+**Prerequisites:**
+- PostgreSQL with pgvector extension
+- TEI service or OpenAI API key
+- Enable vector storage in configuration
+
+```bash
+# First, crawl with embeddings enabled
+curl -X POST http://localhost:3002/v1/crawl \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer YOUR_API_KEY' \
+  -d '{
+    "url": "https://docs.example.com",
+    "formats": ["markdown", "embeddings"]
+  }'
+
+# Then search through your crawled content
+curl -X POST http://localhost:3002/v2/vector-search \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer YOUR_API_KEY' \
+  -d '{
+    "query": "How do I implement authentication?",
+    "limit": 5,
+    "filters": {
+      "domain": "docs.example.com"
+    }
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "url": "https://docs.example.com/auth/setup",
+      "title": "Authentication Setup Guide",
+      "content": "To implement authentication...",
+      "similarity": 0.92,
+      "metadata": {
+        "language": "en",
+        "sourceURL": "https://docs.example.com/auth/setup"
+      }
+    }
+  ]
+}
+```
+
+For detailed setup instructions, see [docs/TEI_PGVECTOR_SETUP.md](docs/TEI_PGVECTOR_SETUP.md).
 
 ### Extract (Beta)
 

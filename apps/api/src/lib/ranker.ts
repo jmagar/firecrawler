@@ -1,15 +1,30 @@
 import { embed } from "ai";
 import { configDotenv } from "dotenv";
 import { getEmbeddingModel } from "./generic-ai";
+import { CostTracking } from "./cost-tracking";
+import { calculateEmbeddingCost } from "./extract/usage/llm-cost";
 
 configDotenv();
 
 async function getEmbedding(
   text: string,
   metadata: { teamId: string; extractId?: string },
+  costTracking?: CostTracking,
 ) {
+  // Determine provider based on MODEL_EMBEDDING_NAME
+  const modelName = process.env.MODEL_EMBEDDING_NAME;
+  const provider = modelName && modelName.startsWith("sentence-transformers/")
+    ? "tei" as const
+    : undefined;
+  
+  const finalModelName = provider 
+    ? modelName || "sentence-transformers/all-MiniLM-L6-v2"
+    : "text-embedding-3-small";
+  
   const { embedding } = await embed({
-    model: getEmbeddingModel("text-embedding-3-small"),
+    model: provider 
+      ? getEmbeddingModel(finalModelName, provider)
+      : getEmbeddingModel(finalModelName),
     value: text,
     experimental_telemetry: {
       isEnabled: true,
@@ -24,6 +39,25 @@ async function getEmbedding(
       },
     },
   });
+
+  // Track embedding costs if cost tracking is provided
+  if (costTracking) {
+    const cost = calculateEmbeddingCost(finalModelName, text);
+    
+    costTracking.addCall({
+      type: "other",
+      metadata: {
+        module: "ranker",
+        method: "getEmbedding",
+      },
+      model: finalModelName,
+      cost: cost,
+      tokens: {
+        input: Math.ceil(text.length * 0.5), // Approximate token count
+        output: 0, // Embeddings don't have output tokens
+      },
+    });
+  }
 
   return embedding;
 }
@@ -51,6 +85,7 @@ async function performRanking(
   links: string[],
   searchQuery: string,
   metadata: { teamId: string; extractId?: string },
+  costTracking?: CostTracking,
 ) {
   try {
     // Handle invalid inputs
@@ -62,12 +97,12 @@ async function performRanking(
     const sanitizedQuery = searchQuery;
 
     // Generate embeddings for the search query
-    const queryEmbedding = await getEmbedding(sanitizedQuery, metadata);
+    const queryEmbedding = await getEmbedding(sanitizedQuery, metadata, costTracking);
 
     // Generate embeddings for each link and calculate similarity in parallel
     const linksAndScores = await Promise.all(
       linksWithContext.map((linkWithContext, index) =>
-        getEmbedding(linkWithContext, metadata)
+        getEmbedding(linkWithContext, metadata, costTracking)
           .then(linkEmbedding => {
             const score = cosineSimilarity(queryEmbedding, linkEmbedding);
             return {
