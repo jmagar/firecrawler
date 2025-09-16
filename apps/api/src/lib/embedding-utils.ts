@@ -31,7 +31,7 @@ export function getVectorDimension(): number {
   const vectorDimension = process.env.VECTOR_DIMENSION;
   if (!vectorDimension) {
     throw new Error(
-      "VECTOR_DIMENSION environment variable is required when vector storage is enabled. Set it to match your embedding model's output dimension (e.g., 1536 for text-embedding-3-small, 384 for all-MiniLM-L6-v2).",
+      "VECTOR_DIMENSION environment variable is required when vector storage is enabled. Set it to match your embedding model's output dimension (e.g., 1024 for Qwen3-Embedding-0.6B, 384 for all-MiniLM-L6-v2).",
     );
   }
 
@@ -108,7 +108,7 @@ export function validateModelConfiguration(): {
       );
     } else if (!openaiKey) {
       throw new Error(
-        "Either MODEL_EMBEDDING_NAME or OPENAI_API_KEY must be set.\n\nFor OpenAI (recommended for getting started):\nOPENAI_API_KEY=your_key_here\nMODEL_EMBEDDING_NAME=text-embedding-3-small\nVECTOR_DIMENSION=1536\n\nFor TEI (self-hosted):\nTEI_URL=http://your-tei-service:8080\nMODEL_EMBEDDING_NAME=sentence-transformers/all-MiniLM-L6-v2\nVECTOR_DIMENSION=384",
+        "Either MODEL_EMBEDDING_NAME or OPENAI_API_KEY must be set.\n\nFor OpenAI (recommended for getting started):\nOPENAI_API_KEY=your_key_here\nMODEL_EMBEDDING_NAME=text-embedding-3-small\nVECTOR_DIMENSION=1536\n\nFor TEI (self-hosted, recommended):\nTEI_URL=http://your-tei-service:8080\nMODEL_EMBEDDING_NAME=Qwen/Qwen3-Embedding-0.6B\nVECTOR_DIMENSION=1024",
       );
     }
   }

@@ -4,7 +4,6 @@ Vector search functionality for Firecrawl v2 API.
 
 from typing import Dict, Any
 from ..types import VectorSearchRequest, VectorSearchData, VectorSearchTiming, VectorSearchResult
-from ..utils.normalize import normalize_camel_case
 from ..utils import HttpClient, handle_response_error
 
 def vector_search(

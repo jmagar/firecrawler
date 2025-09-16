@@ -1,0 +1,26 @@
+# Test YAML Configuration for Firecrawl
+# This file demonstrates basic YAML configuration functionality
+
+scraping:
+  timeout: 60000
+  onlyMainContent: false
+  mobile: true
+  blockAds: false
+  headers:
+    User-Agent: "File Watching Test - Auto Reload Check"
+
+language:
+  location:
+    country: "us"
+    languages: ["en"]
+
+crawling:
+  limit: 50
+  allowExternalLinks: true
+
+search:
+  limit: 20
+  timeout: 45000
+
+features:
+  vectorStorage: true

@@ -6,6 +6,10 @@ This documentation provides comprehensive guides for working with Firecrawl's cr
 
 ## Documentation Structure
 
+### ⚙️ Configuration and Setup
+- **[Configuration Guide](./configuration-guide.md)** - Complete YAML configuration system for self-hosted deployments
+- **[TEI PGVector Setup](./TEI_PGVECTOR_SETUP.md)** - Text Embeddings Inference and vector database configuration
+
 ### 🏗️ Architecture and Database
 - **[Database Architecture](./database-architecture.md)** - Understanding Firecrawl's dual storage system (vector + queue)
 - **[Database Cleanup Guide](./database-cleanup-guide.md)** - Procedures for removing unwanted content and maintaining data integrity
@@ -16,12 +20,29 @@ This documentation provides comprehensive guides for working with Firecrawl's cr
 
 ### 🛠️ Operations and Maintenance  
 - **[Troubleshooting Guide](./troubleshooting-guide.md)** - Solutions for common issues and debugging procedures
-- **[TEI PGVector Setup](./TEI_PGVECTOR_SETUP.md)** - Text Embeddings Inference and vector database configuration
 
 ### 🔍 Vector Search API
 - **[Vector Search API Documentation](./vector-search-api.md)** - Complete API reference, examples, and integration guide
 
 ## Quick Start Scenarios
+
+### ⚙️ YAML Configuration Setup
+For self-hosted deployments wanting to set default API parameters:
+
+1. **Copy example configuration** and customize:
+```bash
+cp defaults.example.yaml defaults.yaml
+nano defaults.yaml
+```
+
+2. **Mount in Docker** deployment:
+```bash
+docker run -v ./defaults.yaml:/app/defaults.yaml firecrawl/firecrawl
+```
+
+3. **API requests inherit defaults** automatically with YAML configuration taking precedence
+
+👉 **See**: [Configuration Guide](./configuration-guide.md)
 
 ### 🚀 English-Only Web Crawling
 For crawling documentation sites while excluding foreign language content:

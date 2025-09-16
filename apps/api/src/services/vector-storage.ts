@@ -20,7 +20,7 @@ function getVectorDimension(): number {
   const vectorDimension = process.env.VECTOR_DIMENSION;
   if (!vectorDimension) {
     throw new Error(
-      "VECTOR_DIMENSION environment variable is required. Set it to match your embedding model's output dimension (e.g., 1536 for text-embedding-3-small, 384 for sentence-transformers/all-MiniLM-L6-v2).",
+      "VECTOR_DIMENSION environment variable is required. Set it to match your embedding model's output dimension (e.g., 1024 for Qwen3-Embedding-0.6B, 384 for sentence-transformers/all-MiniLM-L6-v2).",
     );
   }
 

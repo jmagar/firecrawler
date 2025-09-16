@@ -36,6 +36,20 @@ Self-hosting Firecrawl is ideal for those who need full control over their scrap
 
 Create an `.env` in the root directory using the template below.
 
+3. *(Optional)* Configure YAML defaults
+
+For easier configuration management, you can create a `defaults.yaml` file to set default values for API requests:
+
+```bash
+# Copy the example configuration
+cp defaults.example.yaml defaults.yaml
+
+# Edit to customize your defaults
+nano defaults.yaml
+```
+
+This eliminates the need to specify the same parameters in every API request. See the [Configuration Guide](docs/configuration-guide.md) for detailed setup instructions.
+
 `.env:`
 ```
 # ===== Required ENVS ======
@@ -116,7 +130,7 @@ BULL_AUTH_KEY=CHANGEME
 # MAX_RAM=0.8
 ```
 
-3.  Build and run the Docker containers:
+4.  Build and run the Docker containers:
     
     ```bash
     docker compose build
@@ -128,6 +142,27 @@ BULL_AUTH_KEY=CHANGEME
     This will run a local instance of Firecrawl which can be accessed at `http://localhost:3002`.
     
     You should be able to see the Bull Queue Manager UI on `http://localhost:3002/admin/CHANGEME/queues`.
+
+### Docker Configuration Mounting
+
+If you created a `defaults.yaml` file, mount it into the container by modifying your `docker-compose.yml`:
+
+```yaml
+services:
+  firecrawl-api:
+    # ... existing configuration ...
+    volumes:
+      - ./defaults.yaml:/app/defaults.yaml
+    # ... rest of configuration ...
+```
+
+Or if running with `docker run`:
+
+```bash
+docker run -v ./defaults.yaml:/app/defaults.yaml \
+           -p 3002:3002 \
+           firecrawl/firecrawl
+```
 
 5. *(Optional)* Test the API
 
@@ -203,6 +238,46 @@ API requests to the Firecrawl instance timeout or return no response.
 - Ensure that the Firecrawl service is running by checking the Docker container status.
 - Verify that the PORT and HOST settings in your .env file are correct and that no other service is using the same port.
 - Check the network configuration to ensure that the host is accessible from the client making the API request.
+
+### Configuration file not applied
+
+**Symptom:**
+API requests use default behavior instead of your configured values.
+
+**Solution:**
+- Verify the configuration file is properly mounted in the Docker container:
+  ```bash
+  docker exec -it <container_name> ls -la /app/defaults.yaml
+  ```
+- Check the configuration file syntax:
+  ```bash
+  # Validate YAML syntax (if you have Python installed)
+  python -c "import yaml; yaml.safe_load(open('defaults.yaml'))"
+  ```
+- Review application logs for configuration-related errors:
+  ```bash
+  docker logs <container_name> | grep -i config
+  ```
+
+### Environment variable substitution not working
+
+**Symptom:**
+Configuration contains literal `${VAR}` strings instead of resolved values.
+
+**Solution:**
+- Ensure environment variables are set and accessible to the container:
+  ```bash
+  docker exec -it <container_name> env | grep YOUR_VAR_NAME
+  ```
+- Use the correct syntax: `${VAR_NAME:-default_value}` (note the colon and dash)
+- Quote values with special characters in YAML:
+  ```yaml
+  # Correct
+  proxy: "${PROXY_MODE:-auto}"
+  
+  # May cause issues if PROXY_MODE contains special characters
+  proxy: ${PROXY_MODE:-auto}
+  ```
 
 By addressing these common issues, you can ensure a smoother setup and operation of your self-hosted Firecrawl instance.
 

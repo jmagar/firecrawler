@@ -46,3 +46,4 @@ gke-key.json
 CLAUDE.local.md
 
 *.egg-info/
+*.egg
