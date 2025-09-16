@@ -25,6 +25,7 @@ import {
   blocklistMiddleware,
   countryCheck,
   idempotencyMiddleware,
+  yamlConfigDefaultsMiddleware,
   wrap,
 } from "./shared";
 import { queueStatusController } from "../controllers/v2/queue-status";
@@ -38,6 +39,7 @@ export const v2Router = express.Router();
 v2Router.post(
   "/search",
   authMiddleware(RateLimiterMode.Search),
+  yamlConfigDefaultsMiddleware,
   countryCheck,
   checkCreditsMiddleware(),
   blocklistMiddleware,
@@ -56,6 +58,7 @@ v2Router.post(
 v2Router.post(
   "/scrape",
   authMiddleware(RateLimiterMode.Scrape),
+  yamlConfigDefaultsMiddleware,
   countryCheck,
   checkCreditsMiddleware(1),
   blocklistMiddleware,
@@ -71,6 +74,7 @@ v2Router.get(
 v2Router.post(
   "/batch/scrape",
   authMiddleware(RateLimiterMode.Scrape),
+  yamlConfigDefaultsMiddleware,
   countryCheck,
   checkCreditsMiddleware(),
   blocklistMiddleware,
@@ -88,6 +92,7 @@ v2Router.post(
 v2Router.post(
   "/crawl",
   authMiddleware(RateLimiterMode.Crawl),
+  yamlConfigDefaultsMiddleware,
   countryCheck,
   checkCreditsMiddleware(),
   blocklistMiddleware,
@@ -149,6 +154,7 @@ v2Router.get(
 v2Router.post(
   "/extract",
   authMiddleware(RateLimiterMode.Extract),
+  yamlConfigDefaultsMiddleware,
   countryCheck,
   checkCreditsMiddleware(1),
   blocklistMiddleware,

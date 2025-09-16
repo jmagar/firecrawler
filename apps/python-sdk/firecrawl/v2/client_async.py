@@ -12,6 +12,9 @@ from .types import (
     SearchRequest,
     SearchData,
     SourceOption,
+    VectorSearchRequest,
+    VectorSearchData,
+    VectorSearchFilters,
     CrawlResponse,
     CrawlJob,
     CrawlParamsRequest,
@@ -40,6 +43,7 @@ from .methods.aio import scrape as async_scrape  # type: ignore[attr-defined]
 from .methods.aio import batch as async_batch  # type: ignore[attr-defined]
 from .methods.aio import crawl as async_crawl  # type: ignore[attr-defined]
 from .methods.aio import search as async_search  # type: ignore[attr-defined]
+from .methods.aio import vector_search as async_vector_search  # type: ignore[attr-defined]
 from .methods.aio import map as async_map # type: ignore[attr-defined]
 from .methods.aio import usage as async_usage # type: ignore[attr-defined]
 from .methods.aio import extract as async_extract  # type: ignore[attr-defined]
@@ -72,6 +76,57 @@ class AsyncFirecrawlClient:
     ) -> SearchData:
         request = SearchRequest(query=query, **{k: v for k, v in kwargs.items() if v is not None})
         return await async_search.search(self.async_http_client, request)
+
+    # Vector Search
+    async def vector_search(
+        self,
+        query: str,
+        *,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        threshold: Optional[float] = None,
+        include_content: Optional[bool] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        origin: Optional[str] = None,
+        integration: Optional[str] = None,
+    ) -> VectorSearchData:
+        """
+        Perform an async vector search for semantically similar content.
+        
+        Args:
+            query: Search query string (1-1000 characters)
+            limit: Maximum number of results to return (1-100, default: 10)
+            offset: Number of results to skip for pagination (default: 0)
+            threshold: Minimum similarity score (0-1, default: 0.7)
+            include_content: Include full content in results (default: true)
+            filters: Filters to apply to search results
+            origin: Origin identifier for the request
+            integration: Integration identifier
+            
+        Returns:
+            VectorSearchData containing the search results and metadata
+            
+        Raises:
+            ValueError: If request parameters are invalid
+            FirecrawlError: If the search operation fails
+        """
+        # Convert filters dict to VectorSearchFilters if provided
+        filters_obj = None
+        if filters is not None:
+            filters_obj = VectorSearchFilters(**filters)
+            
+        request = VectorSearchRequest(
+            query=query,
+            limit=limit,
+            offset=offset,
+            threshold=threshold,
+            include_content=include_content,
+            filters=filters_obj,
+            origin=origin,
+            integration=integration,
+        )
+
+        return await async_vector_search.vector_search(self.async_http_client, request)
 
     async def start_crawl(self, url: str, **kwargs) -> CrawlResponse:
         request = CrawlRequest(url=url, **kwargs)

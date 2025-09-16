@@ -44,9 +44,7 @@ interface DocumentMetadata {
 /**
  * Extracts GitHub repository information from URL
  */
-function extractGitHubMetadata(
-  url: string,
-): GitHubRepositoryMetadata | null {
+function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | null {
   try {
     const urlObj = new URL(url);
 
@@ -70,10 +68,11 @@ function extractGitHubMetadata(
         .filter(part => part.length > 0);
       if (pathParts.length >= 3) {
         const [org, repo, branch, ...fileParts] = pathParts;
-        const filePath = fileParts.join("/");
-        const fileExtension = filePath.includes(".")
-          ? filePath.split(".").pop()?.toLowerCase()
-          : undefined;
+        const filePath = fileParts.length ? fileParts.join("/") : undefined;
+        const fileExtension =
+          filePath && filePath.includes(".")
+            ? filePath.split(".").pop()?.toLowerCase()
+            : undefined;
 
         return {
           repository_org: org,
@@ -141,7 +140,10 @@ function classifyContentType(
   try {
     const urlObj = new URL(url);
     const pathname = urlObj.pathname.toLowerCase();
-    const filename = pathname.split("/").pop() || "";
+    const filename = (() => {
+      const parts = pathname.split("/").filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : "";
+    })();
 
     // README detection
     if (filename.match(/^readme\.(md|txt|rst)$/i) || filename === "readme") {
@@ -154,7 +156,7 @@ function classifyContentType(
       pathname.includes("/api/") ||
       pathname.includes("/docs/api") ||
       pathname.includes("/reference/") ||
-      filename.includes("api")
+      /\bapi\b/i.test(filename)
     ) {
       contentType = "api_documentation";
       confidence = 0.8;
@@ -180,7 +182,7 @@ function classifyContentType(
     // Code files
     else if (
       filename.match(
-        /\.(js|ts|py|java|cpp|c|go|rs|rb|php|html|css|scss|less)$/i,
+        /\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|py|ipynb|java|cpp|cxx|cc|c|hpp|go|rs|rb|php|swift|kt|scala|sh|bash|zsh|fish|ps1|cs|dart|r|sql|html|css|scss|less|vue|svelte)$/i,
       )
     ) {
       contentType = "code";
@@ -253,8 +255,12 @@ function classifyContentType(
         lowerContent.includes("release notes") ||
         (lowerContent.includes("version") && lowerContent.includes("changes"))
       ) {
-        contentType = "changelog";
-        confidence = 0.8;
+        if (contentType === "general" || confidence < 0.75) {
+          contentType = "changelog";
+          confidence = Math.max(confidence, 0.8);
+        } else {
+          confidence = Math.min(confidence + 0.05, 0.95);
+        }
         indicators.push("content_changelog_indicators");
       }
     }
@@ -297,7 +303,7 @@ function extractDomainMetadata(url: string): DomainMetadata {
     let documentationType: DomainMetadata["documentation_type"];
 
     // GitHub detection
-    if (domain === "github.com" || domain === "raw.githubusercontent.com") {
+    if (domain === "github.com" || hostname === "raw.githubusercontent.com") {
       isDocumentationSite = true;
       documentationType = "github";
     }
@@ -320,7 +326,8 @@ function extractDomainMetadata(url: string): DomainMetadata {
     // Blog platforms
     else if (
       ["medium.com", "dev.to", "hashnode.com"].includes(domain) ||
-      subdomain?.includes("blog")
+      subdomain === "blog" ||
+      subdomain?.startsWith("blog.")
     ) {
       isDocumentationSite = true;
       documentationType = "blog";
@@ -365,14 +372,20 @@ function detectProgrammingLanguage(
     const extensionMap: Record<string, string> = {
       js: "javascript",
       jsx: "javascript",
+      mjs: "javascript",
+      cjs: "javascript",
       ts: "typescript",
       tsx: "typescript",
+      mts: "typescript",
+      cts: "typescript",
       py: "python",
+      ipynb: "python",
       java: "java",
       cpp: "cpp",
       cxx: "cpp",
       cc: "cpp",
       c: "c",
+      hpp: "cpp",
       go: "go",
       rs: "rust",
       rb: "ruby",
@@ -385,6 +398,8 @@ function detectProgrammingLanguage(
       zsh: "zsh",
       fish: "fish",
       ps1: "powershell",
+      cs: "csharp",
+      dart: "dart",
       r: "r",
       sql: "sql",
       html: "html",
@@ -406,10 +421,15 @@ function detectProgrammingLanguage(
 
     if (lowerContent.includes("def ") && lowerContent.includes("import "))
       return "python";
-    if (lowerContent.includes("function ") && lowerContent.includes("const "))
-      return "javascript";
     if (lowerContent.includes("interface ") && lowerContent.includes("type "))
       return "typescript";
+    if (lowerContent.includes("function ") && lowerContent.includes("const "))
+      return "javascript";
+    if (
+      lowerContent.includes("using system") &&
+      lowerContent.includes("namespace ")
+    )
+      return "csharp";
     if (
       lowerContent.includes("public class") &&
       lowerContent.includes("static void")
@@ -428,25 +448,26 @@ function detectProgrammingLanguage(
 
 /**
  * Counts words in content (excluding code blocks and HTML)
+ * Uses Intl.Segmenter for better CJK language support when available
  */
 function countWords(content: string): number {
   if (!content) return 0;
-
-  // Remove code blocks
   const withoutCodeBlocks = content
     .replace(/```[\s\S]*?```/g, "")
     .replace(/`[^`]*`/g, "");
-
-  // Remove HTML tags
   const withoutHtml = withoutCodeBlocks.replace(/<[^>]*>/g, "");
 
-  // Split by whitespace and filter out empty strings
-  const words = withoutHtml
-    .split(/\s+/)
-    .filter(word => word.length > 0)
-    .filter(word => !/^[^\w]*$/.test(word)); // Remove strings with no word characters
+  if ((Intl as any).Segmenter) {
+    const seg = new (Intl as any).Segmenter(undefined, { granularity: "word" });
+    let count = 0;
+    for (const { isWordLike } of seg.segment(withoutHtml) as any)
+      if (isWordLike) count++;
+    return count;
+  }
 
-  return words.length;
+  return withoutHtml
+    .split(/\s+/)
+    .filter(w => w.length > 0 && !/^[^\w]*$/.test(w)).length;
 }
 
 /**
@@ -461,9 +482,14 @@ function isCodeFile(filePath?: string, content?: string): boolean {
     const codeExtensions = [
       "js",
       "jsx",
+      "mjs",
+      "cjs",
       "ts",
       "tsx",
+      "mts",
+      "cts",
       "py",
+      "ipynb",
       "java",
       "cpp",
       "cxx",
@@ -483,6 +509,8 @@ function isCodeFile(filePath?: string, content?: string): boolean {
       "zsh",
       "fish",
       "ps1",
+      "cs",
+      "dart",
       "r",
       "sql",
       "html",
@@ -491,7 +519,6 @@ function isCodeFile(filePath?: string, content?: string): boolean {
       "less",
       "vue",
       "svelte",
-      "dart",
       "elm",
       "ex",
       "exs",
@@ -547,13 +574,23 @@ export function extractDocumentMetadata(
   let fileMetadata: DocumentMetadata["file_metadata"];
 
   // Extract file metadata if we have path information
-  const filePath = githubMetadata?.file_path || url.split("/").pop();
+  const filePathFromUrl = (() => {
+    try {
+      const { pathname } = new URL(url);
+      const parts = pathname.split("/").filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+  const filePath = githubMetadata?.file_path || filePathFromUrl;
   if (filePath) {
     const isCode = isCodeFile(filePath, content);
     const programmingLanguage = detectProgrammingLanguage(filePath, content);
-    const extension = filePath.includes(".")
-      ? filePath.split(".").pop()?.toLowerCase()
-      : undefined;
+    const extension =
+      filePath && filePath.includes(".")
+        ? filePath.split(".").pop()?.toLowerCase()
+        : undefined;
 
     fileMetadata = {
       extension,

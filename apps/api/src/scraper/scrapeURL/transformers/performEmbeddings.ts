@@ -3,7 +3,12 @@ import { Document } from "../../../controllers/v2/types";
 import { Meta } from "..";
 import { logger } from "../../../lib/logger";
 import { getEmbeddingModel } from "../../../lib/generic-ai";
-import { hasFormatOfType } from "../../../lib/format-utils";
+import {
+  shouldGenerateEmbeddings,
+  isVectorStorageEnabled,
+  validateModelConfiguration,
+  validateEmbeddingDimension,
+} from "../../../lib/embedding-utils";
 import { storeDocumentVector } from "../../../services/vector-storage";
 import {
   extractDocumentMetadata,
@@ -31,16 +36,10 @@ export async function performEmbeddings(
   meta: Meta,
   document: Document,
 ): Promise<Document> {
-  // Check if vector storage is enabled first
-  const enableVectorStorage = process.env.ENABLE_VECTOR_STORAGE === "true";
-  if (!enableVectorStorage) {
-    // Only check for explicit embeddings format if vector storage is disabled
-    const hasEmbeddings = hasFormatOfType(meta.options.formats, "embeddings");
-    if (!hasEmbeddings) {
-      return document;
-    }
+  // Check if embeddings should be generated using shared utility
+  if (!shouldGenerateEmbeddings(meta.options.formats)) {
+    return document;
   }
-  // If ENABLE_VECTOR_STORAGE=true, always generate embeddings regardless of format
 
   const start = Date.now();
   const _logger = meta.logger.child({
@@ -65,22 +64,9 @@ export async function performEmbeddings(
       return document;
     }
 
-    // Vector storage enablement already checked at function start
-
-    // Determine embedding model and provider
-    const modelName = process.env.MODEL_EMBEDDING_NAME;
-    const provider =
-      modelName &&
-      (modelName.startsWith("sentence-transformers/") ||
-        modelName.startsWith("Qwen/") ||
-        modelName.startsWith("BAAI/") ||
-        modelName.startsWith("intfloat/"))
-        ? ("tei" as const)
-        : undefined;
-
-    const finalModelName = provider
-      ? modelName || "sentence-transformers/all-MiniLM-L6-v2"
-      : "text-embedding-3-small";
+    // Validate model configuration using shared utility
+    const { modelName: finalModelName, provider } =
+      validateModelConfiguration();
 
     _logger.info("Generating embeddings", {
       model: finalModelName,
@@ -89,11 +75,20 @@ export async function performEmbeddings(
       contentType: typeof content,
     });
 
-    // Truncate content if it's too long (embedding models have token limits)
-    const maxContentLength = parseInt(
-      process.env.MAX_EMBEDDING_CONTENT_LENGTH || "50000",
-      10,
-    );
+    // Safely parse MAX_EMBEDDING_CONTENT_LENGTH with fallback validation
+    let maxContentLength = 50000; // Safe default
+    const maxContentLengthEnv = process.env.MAX_EMBEDDING_CONTENT_LENGTH;
+    if (maxContentLengthEnv) {
+      const parsed = parseInt(maxContentLengthEnv, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        maxContentLength = parsed;
+      } else {
+        _logger.warn("Invalid MAX_EMBEDDING_CONTENT_LENGTH, using default", {
+          invalidValue: maxContentLengthEnv,
+          defaultValue: maxContentLength,
+        });
+      }
+    }
     const truncatedContent =
       content.length > maxContentLength
         ? content.substring(0, maxContentLength)
@@ -130,6 +125,26 @@ export async function performEmbeddings(
     });
 
     const embeddingDuration = Date.now() - embeddingStart;
+
+    // Validate embedding dimensions using shared utility
+    try {
+      validateEmbeddingDimension(embedding, finalModelName, provider);
+    } catch (dimensionError) {
+      _logger.error("Embedding dimension validation failed", {
+        modelName: finalModelName,
+        actualDimension: embedding.length,
+        error:
+          dimensionError instanceof Error
+            ? dimensionError.message
+            : String(dimensionError),
+      });
+      throw new EmbeddingGenerationError(
+        dimensionError instanceof Error
+          ? dimensionError.message
+          : String(dimensionError),
+      );
+    }
+
     _logger.info("Embedding generated successfully", {
       duration: embeddingDuration,
       vectorDimension: embedding.length,
@@ -138,7 +153,11 @@ export async function performEmbeddings(
 
     // Track embedding costs
     if (meta.costTracking) {
-      const cost = calculateEmbeddingCost(finalModelName, truncatedContent);
+      // Use language from document metadata if available for better token estimation
+      const language = document.metadata?.language;
+      const cost = calculateEmbeddingCost(finalModelName, truncatedContent, {
+        language,
+      });
 
       meta.costTracking.addCall({
         type: "other",
@@ -169,33 +188,41 @@ export async function performEmbeddings(
       document.title || document.metadata?.title,
     );
 
-    // Store vector in PostgreSQL if enabled
-    try {
-      const vectorStorageStart = Date.now();
-      await storeDocumentVector(meta.id, embedding, document, _logger);
-      const vectorStorageDuration = Date.now() - vectorStorageStart;
+    // Store vector in PostgreSQL if enabled - properly gate on vector storage flag
+    let vectorStored = false;
+    if (isVectorStorageEnabled()) {
+      try {
+        const vectorStorageStart = Date.now();
+        await storeDocumentVector(meta.id, embedding, document, _logger);
+        const vectorStorageDuration = Date.now() - vectorStorageStart;
+        vectorStored = true;
 
-      _logger.info("Vector stored successfully", {
-        duration: vectorStorageDuration,
-        vectorDimension: embedding.length,
-        metadata: formatMetadataForStorage(documentMetadata),
-      });
-    } catch (vectorError) {
-      // Vector storage failure shouldn't break the scraping process
-      _logger.error(
-        "Failed to store vector, continuing without vector storage",
-        {
-          error:
-            vectorError instanceof Error
-              ? vectorError.message
-              : String(vectorError),
+        _logger.info("Vector stored successfully", {
+          duration: vectorStorageDuration,
           vectorDimension: embedding.length,
-        },
-      );
+          metadata: formatMetadataForStorage(documentMetadata),
+        });
+      } catch (vectorError) {
+        // Vector storage failure shouldn't break the scraping process
+        _logger.error(
+          "Failed to store vector, continuing without vector storage",
+          {
+            error:
+              vectorError instanceof Error
+                ? vectorError.message
+                : String(vectorError),
+            vectorDimension: embedding.length,
+          },
+        );
 
-      document.warning =
-        "Vector storage failed but embedding was generated." +
-        (document.warning ? " " + document.warning : "");
+        document.warning =
+          "Vector storage failed but embedding was generated." +
+          (document.warning ? " " + document.warning : "");
+      }
+    } else {
+      _logger.debug("Vector storage disabled, skipping vector persistence", {
+        isVectorStorageEnabled: isVectorStorageEnabled(),
+      });
     }
 
     // Add embedding metadata to document (but don't include the actual vector)
@@ -220,7 +247,7 @@ export async function performEmbeddings(
       totalDuration: Date.now() - start,
       model: finalModelName,
       vectorDimension: embedding.length,
-      vectorStored: true,
+      vectorStored,
     });
 
     return document;

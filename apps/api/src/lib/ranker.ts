@@ -12,11 +12,11 @@ async function getEmbedding(
   costTracking?: CostTracking,
 ) {
   // Determine provider based on MODEL_EMBEDDING_NAME
-  const modelName = process.env.MODEL_EMBEDDING_NAME;
-  const provider =
-    modelName && modelName.startsWith("sentence-transformers/")
-      ? ("tei" as const)
-      : undefined;
+  const rawName = process.env.MODEL_EMBEDDING_NAME?.trim();
+  const modelName = rawName && rawName.length > 0 ? rawName : undefined;
+  const provider = modelName?.toLowerCase().startsWith("sentence-transformers/")
+    ? ("tei" as const)
+    : undefined;
 
   const finalModelName = provider
     ? modelName || "sentence-transformers/all-MiniLM-L6-v2"
@@ -43,6 +43,7 @@ async function getEmbedding(
 
   // Track embedding costs if cost tracking is provided
   if (costTracking) {
+    // Auto-detect language from text for better token estimation
     const cost = calculateEmbeddingCost(finalModelName, text);
 
     costTracking.addCall({

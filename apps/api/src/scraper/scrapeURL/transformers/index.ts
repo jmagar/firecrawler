@@ -19,6 +19,7 @@ import {
   hasFormatOfType,
   hasAnyFormatOfTypes,
 } from "../../../lib/format-utils";
+import { shouldGenerateEmbeddings } from "../../../lib/embedding-utils";
 
 type Transformer = (
   meta: Meta,
@@ -174,7 +175,7 @@ function coerceFieldsToFormats(meta: Meta, document: Document): Document {
   const hasJson = hasFormatOfType(meta.options.formats, "json");
   const hasScreenshot = hasFormatOfType(meta.options.formats, "screenshot");
   const hasSummary = hasFormatOfType(meta.options.formats, "summary");
-  const hasEmbeddings = hasFormatOfType(meta.options.formats, "embeddings") || process.env.ENABLE_VECTOR_STORAGE === "true";
+  const hasEmbeddings = shouldGenerateEmbeddings(meta.options.formats);
 
   if (!hasMarkdown && document.markdown !== undefined) {
     delete document.markdown;
@@ -382,4 +383,3 @@ export async function executeTransformers(
 
   return document;
 }
-

@@ -16,7 +16,25 @@ nuqPool.on("error", err =>
 );
 
 // Vector storage configuration
-const VECTOR_DIMENSION = parseInt(process.env.VECTOR_DIMENSION || "1024", 10);
+function getVectorDimension(): number {
+  const vectorDimension = process.env.VECTOR_DIMENSION;
+  if (!vectorDimension) {
+    throw new Error(
+      "VECTOR_DIMENSION environment variable is required. Set it to match your embedding model's output dimension (e.g., 1536 for text-embedding-3-small, 384 for sentence-transformers/all-MiniLM-L6-v2).",
+    );
+  }
+
+  const dimension = parseInt(vectorDimension, 10);
+  if (isNaN(dimension) || dimension <= 0) {
+    throw new Error(
+      `VECTOR_DIMENSION must be a positive integer, got: ${vectorDimension}`,
+    );
+  }
+
+  return dimension;
+}
+
+const VECTOR_DIMENSION = getVectorDimension();
 const ENABLE_VECTOR_STORAGE = process.env.ENABLE_VECTOR_STORAGE === "true";
 const MIN_SIMILARITY_THRESHOLD = parseFloat(
   process.env.MIN_SIMILARITY_THRESHOLD || "0.7",
@@ -42,6 +60,7 @@ export interface VectorSearchOptions {
   minSimilarity?: number;
   domain?: string;
   repositoryName?: string;
+  repositoryOrg?: string;
   contentType?: string;
   dateRange?: {
     start?: string;
@@ -220,7 +239,7 @@ export async function storeDocumentVector(
 
   if (!embedding || embedding.length !== VECTOR_DIMENSION) {
     throw new Error(
-      `Invalid embedding dimension: expected ${VECTOR_DIMENSION}, got ${embedding?.length || 0}`,
+      `Invalid embedding dimension: expected ${VECTOR_DIMENSION}, got ${embedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly.`,
     );
   }
 
@@ -294,7 +313,7 @@ export async function searchSimilarVectors(
 
   if (!queryEmbedding || queryEmbedding.length !== VECTOR_DIMENSION) {
     throw new Error(
-      `Invalid query embedding dimension: expected ${VECTOR_DIMENSION}, got ${queryEmbedding?.length || 0}`,
+      `Invalid query embedding dimension: expected ${VECTOR_DIMENSION}, got ${queryEmbedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly.`,
     );
   }
 
@@ -304,6 +323,7 @@ export async function searchSimilarVectors(
     minSimilarity = MIN_SIMILARITY_THRESHOLD,
     domain,
     repositoryName,
+    repositoryOrg,
     contentType,
     dateRange,
   } = options;
@@ -327,6 +347,12 @@ export async function searchSimilarVectors(
     if (repositoryName) {
       conditions.push(`(metadata->>'repository_name') = $${paramIndex}`);
       params.push(repositoryName);
+      paramIndex++;
+    }
+
+    if (repositoryOrg) {
+      conditions.push(`(metadata->>'repository_org') = $${paramIndex}`);
+      params.push(repositoryOrg);
       paramIndex++;
     }
 

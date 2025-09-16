@@ -1,4 +1,5 @@
 import "dotenv/config";
+import "./lib/yaml-config/initialize";
 import "./services/sentry";
 import * as Sentry from "@sentry/node";
 import express, { NextFunction, Request, Response } from "express";

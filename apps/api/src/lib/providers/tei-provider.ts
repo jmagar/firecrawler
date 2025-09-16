@@ -1,13 +1,9 @@
 import type { EmbeddingModel } from "ai";
 
-interface TEIConfig {
+export interface TEIConfig {
   baseURL: string;
   apiKey?: string;
   timeout?: number;
-}
-
-interface TEIEmbeddingResponse {
-  embeddings: number[][];
 }
 
 export interface TEIProvider {
@@ -65,9 +61,9 @@ export function createTEI(config: TEIConfig): TEIProvider {
           clearTimeout(timeoutId);
 
           if (!response.ok) {
-            const errorText = await response
-              .text()
-              .catch(() => "Unknown error");
+            const raw = await response.text().catch(() => "Unknown error");
+            const errorText =
+              raw.length > 1000 ? raw.slice(0, 1000) + "…(truncated)" : raw;
             throw new Error(
               `TEI embedding request failed: ${response.status} ${response.statusText} - ${errorText}`,
             );
@@ -78,15 +74,32 @@ export function createTEI(config: TEIConfig): TEIProvider {
           // TEI returns embeddings directly as number[][], not wrapped in an object
           const embeddings = Array.isArray(data) ? data : data.embeddings;
 
-          if (!embeddings || !Array.isArray(embeddings)) {
+          if (
+            !embeddings ||
+            !Array.isArray(embeddings) ||
+            !Array.isArray(embeddings[0])
+          ) {
             throw new Error(
               "Invalid response format from TEI: missing or invalid embeddings array",
             );
           }
 
+          // Validate that all embeddings are arrays of numbers
+          for (let i = 0; i < embeddings.length; i++) {
+            const embedding = embeddings[i];
+            if (
+              !Array.isArray(embedding) ||
+              !embedding.every(val => typeof val === "number")
+            ) {
+              throw new Error(
+                `Invalid embedding format at index ${i}: expected array of numbers, got ${typeof embedding}`,
+              );
+            }
+          }
+
           if (embeddings.length !== values.length) {
             throw new Error(
-              `TEI returned ${embeddings.length} embeddings but expected ${values.length}`,
+              `TEI returned ${embeddings.length} embeddings but expected ${values.length}. First input: "${values[0]?.slice?.(0, 80) ?? ""}…"`,
             );
           }
 
