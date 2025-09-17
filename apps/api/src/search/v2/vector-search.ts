@@ -5,6 +5,16 @@ import { getEmbeddingModel } from "../../lib/generic-ai";
 import { calculateEmbeddingCost } from "../../lib/extract/usage/llm-cost";
 import { CostTracking } from "../../lib/cost-tracking";
 import {
+  API_TO_INTERNAL_CONTENT_TYPE,
+  INTERNAL_TO_API_CONTENT_TYPE,
+} from "../../shared/content-types";
+import {
+  validateEmbeddingDimension,
+  validateModelConfiguration,
+  getVectorDimension,
+  KNOWN_MODEL_DIMENSIONS,
+} from "../../lib/embedding-utils";
+import {
   searchSimilarVectors,
   VectorSearchOptions,
   VectorSearchResult,
@@ -15,13 +25,13 @@ import {
   VectorSearchResult as APIVectorSearchResult,
 } from "../../controllers/v2/types";
 
-export interface VectorSearchServiceOptions {
+interface VectorSearchServiceOptions {
   logger?: Logger;
   costTracking?: CostTracking;
   teamId: string;
 }
 
-export interface VectorSearchTiming {
+interface VectorSearchTiming {
   queryEmbeddingMs: number;
   vectorSearchMs: number;
   totalMs: number;
@@ -38,15 +48,9 @@ async function generateQueryEmbedding(
   const start = Date.now();
 
   try {
-    // Determine provider based on MODEL_EMBEDDING_NAME
-    const modelName = process.env.MODEL_EMBEDDING_NAME;
-    const provider = modelName && modelName.startsWith("sentence-transformers/")
-      ? "tei" as const
-      : undefined;
-    
-    const finalModelName = provider 
-      ? modelName || "sentence-transformers/all-MiniLM-L6-v2"
-      : "text-embedding-3-small";
+    // Validate model configuration early and get resolved model name and provider
+    const { modelName: finalModelName, provider } =
+      validateModelConfiguration();
 
     logger.debug("Generating query embedding", {
       module: "vector_search/metrics",
@@ -54,10 +58,11 @@ async function generateQueryEmbedding(
       provider,
       model: finalModelName,
       queryLength: query.length,
+      configuredVectorDimension: getVectorDimension(),
     });
 
     const { embedding } = await embed({
-      model: provider 
+      model: provider
         ? getEmbeddingModel(finalModelName, provider)
         : getEmbeddingModel(finalModelName),
       value: query,
@@ -70,10 +75,14 @@ async function generateQueryEmbedding(
       },
     });
 
+    // Validate embedding dimension immediately after generation
+    validateEmbeddingDimension(embedding, finalModelName, provider);
+
     // Track embedding costs if cost tracking is provided
     if (costTracking) {
+      // Auto-detect language from query for better token estimation
       const cost = calculateEmbeddingCost(finalModelName, query);
-      
+
       costTracking.addCall({
         type: "other",
         metadata: {
@@ -97,6 +106,8 @@ async function generateQueryEmbedding(
       provider,
       model: finalModelName,
       embeddingDimension: embedding.length,
+      configuredVectorDimension: getVectorDimension(),
+      dimensionValidated: true,
     });
 
     return embedding;
@@ -109,7 +120,9 @@ async function generateQueryEmbedding(
       duration,
       queryLength: query.length,
     });
-    throw new Error(`Failed to generate query embedding: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to generate query embedding: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -118,7 +131,7 @@ async function generateQueryEmbedding(
  */
 function transformFilters(request: VectorSearchRequest): VectorSearchOptions {
   const { filters, limit, offset, threshold } = request;
-  
+
   const options: VectorSearchOptions = {
     limit: limit,
     minSimilarity: threshold,
@@ -132,8 +145,14 @@ function transformFilters(request: VectorSearchRequest): VectorSearchOptions {
     options.repositoryName = filters.repository;
   }
 
+  if (filters?.repositoryOrg) {
+    options.repositoryOrg = filters.repositoryOrg;
+  }
+
   if (filters?.contentType) {
-    options.contentType = filters.contentType;
+    // Map API content type to internal content type
+    options.contentType =
+      API_TO_INTERNAL_CONTENT_TYPE[filters.contentType] || filters.contentType;
   }
 
   if (filters?.dateRange) {
@@ -167,8 +186,13 @@ function transformResults(
         repositoryName: result.metadata.repository_name,
         repositoryOrg: result.metadata.repository_org,
         filePath: result.metadata.file_path,
-        contentType: result.metadata.content_type,
-        wordCount: result.metadata.token_count ? Math.floor(result.metadata.token_count * 0.75) : undefined, // Convert tokens to approximate words
+        contentType: result.metadata.content_type
+          ? INTERNAL_TO_API_CONTENT_TYPE[result.metadata.content_type] ||
+            result.metadata.content_type
+          : undefined,
+        wordCount: result.metadata.token_count
+          ? Math.floor(result.metadata.token_count * 0.75)
+          : undefined, // Convert tokens to approximate words
       },
     };
 
@@ -212,7 +236,7 @@ export async function vectorSearch(
 
     // Step 2: Transform filters and add pagination
     const searchOptions = transformFilters(request);
-    
+
     // Implement offset by increasing limit and slicing results
     // This is a simple approach; for large offsets, a cursor-based approach would be more efficient
     if (request.offset > 0) {
@@ -221,19 +245,26 @@ export async function vectorSearch(
 
     // Step 3: Perform vector similarity search
     const searchStart = Date.now();
-    const vectorResults = await searchSimilarVectors(queryEmbedding, searchOptions, logger);
+    const vectorResults = await searchSimilarVectors(
+      queryEmbedding,
+      searchOptions,
+      logger,
+    );
     vectorSearchTime = Date.now() - searchStart;
 
     // Step 4: Apply offset by slicing results
-    const offsetResults = request.offset > 0 
-      ? vectorResults.slice(request.offset)
-      : vectorResults;
+    const offsetResults =
+      request.offset > 0 ? vectorResults.slice(request.offset) : vectorResults;
 
     // Step 5: Limit results to requested amount
     const limitedResults = offsetResults.slice(0, request.limit);
 
     // Step 6: Transform results to API format
-    const apiResults = transformResults(limitedResults, request, request.offset);
+    const apiResults = transformResults(
+      limitedResults,
+      request,
+      request.offset,
+    );
 
     const totalTime = Date.now() - startTime;
     const timing: VectorSearchTiming = {
@@ -297,7 +328,9 @@ export async function vectorSearch(
 /**
  * Validates vector search request parameters
  */
-export function validateVectorSearchRequest(request: VectorSearchRequest): string[] {
+export function validateVectorSearchRequest(
+  request: VectorSearchRequest,
+): string[] {
   const errors: string[] = [];
 
   if (!request.query || request.query.trim().length === 0) {
@@ -333,24 +366,35 @@ export function validateVectorSearchRequest(request: VectorSearchRequest): strin
 /**
  * Health check for vector search service
  */
-export async function vectorSearchHealthCheck(logger: Logger = _logger): Promise<boolean> {
+async function vectorSearchHealthCheck(
+  logger: Logger = _logger,
+): Promise<boolean> {
   const start = Date.now();
-  
+
   try {
+    // Validate configuration first
+    const { modelName, provider } = validateModelConfiguration();
+    const configuredDimension = getVectorDimension();
+
     // Test embedding generation with a simple query
     const testOptions: VectorSearchServiceOptions = {
       logger,
       teamId: "health-check",
     };
 
-    await generateQueryEmbedding("test query", testOptions);
-    
+    const embedding = await generateQueryEmbedding("test query", testOptions);
+
     logger.info("Vector search health check passed", {
       module: "vector_search/metrics",
       method: "vectorSearchHealthCheck",
       duration: Date.now() - start,
+      modelName,
+      provider,
+      configuredDimension,
+      actualDimension: embedding.length,
+      dimensionMatch: embedding.length === configuredDimension,
     });
-    
+
     return true;
   } catch (error) {
     logger.error("Vector search health check failed", {
@@ -359,7 +403,7 @@ export async function vectorSearchHealthCheck(logger: Logger = _logger): Promise
       error: error instanceof Error ? error.message : String(error),
       duration: Date.now() - start,
     });
-    
+
     return false;
   }
 }

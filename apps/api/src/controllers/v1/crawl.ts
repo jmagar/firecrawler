@@ -63,6 +63,37 @@ export async function crawlController(
     req.auth.team_id,
   );
 
+  // Apply automatic language filtering if DEFAULT_CRAWL_LANGUAGE is set
+  const defaultLanguage = process.env.DEFAULT_CRAWL_LANGUAGE;
+  if (defaultLanguage && defaultLanguage.toLowerCase() !== "all") {
+    try {
+      const { getLanguageExcludePatterns } = await import(
+        "../../lib/language-filter"
+      );
+      const languageExcludePatterns =
+        getLanguageExcludePatterns(defaultLanguage);
+      if (languageExcludePatterns.length > 0) {
+        // Merge with existing excludePaths, don't replace
+        const existingExcludePaths = crawlerOptions.excludePaths || [];
+        crawlerOptions.excludePaths = [
+          ...existingExcludePaths,
+          ...languageExcludePatterns,
+        ];
+
+        logger.info("Applied automatic language filtering", {
+          allowedLanguage: defaultLanguage,
+          patternsAdded: languageExcludePatterns.length,
+          totalExcludePatterns: crawlerOptions.excludePaths.length,
+        });
+      }
+    } catch (error) {
+      logger.warn("Failed to apply language filtering", {
+        defaultLanguage,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   // TODO: @rafa, is this right? copied from v0
   if (Array.isArray(crawlerOptions.includePaths)) {
     for (const x of crawlerOptions.includePaths) {

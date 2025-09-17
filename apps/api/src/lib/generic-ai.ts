@@ -20,9 +20,14 @@ type Provider =
   | "deepinfra"
   | "vertex"
   | "tei";
-const defaultProvider: Provider = process.env.TEI_URL
+
+type TextProvider = Exclude<Provider, "tei">;
+type EmbeddingProvider = "tei" | "openai" | "ollama";
+const defaultEmbeddingProvider: EmbeddingProvider = process.env.TEI_URL
   ? "tei"
-  : process.env.OLLAMA_BASE_URL
+  : "openai";
+
+const defaultTextProvider: TextProvider = process.env.OLLAMA_BASE_URL
   ? "ollama"
   : "openai";
 
@@ -62,10 +67,14 @@ const providerList: Record<Provider, any> = {
   }),
 };
 
-export function getModel(name: string, provider: Provider = defaultProvider) {
+export function getModel(
+  name: string,
+  provider: TextProvider = defaultTextProvider,
+) {
   if (name === "gemini-2.5-pro") {
     name = "gemini-2.5-pro";
   }
+
   return process.env.MODEL_NAME
     ? providerList[provider](process.env.MODEL_NAME)
     : providerList[provider](name);
@@ -73,7 +82,7 @@ export function getModel(name: string, provider: Provider = defaultProvider) {
 
 export function getEmbeddingModel(
   name: string,
-  provider: Provider = defaultProvider,
+  provider: EmbeddingProvider = defaultEmbeddingProvider,
 ) {
   return process.env.MODEL_EMBEDDING_NAME
     ? providerList[provider].embedding(process.env.MODEL_EMBEDDING_NAME)

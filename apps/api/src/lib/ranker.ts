@@ -12,17 +12,18 @@ async function getEmbedding(
   costTracking?: CostTracking,
 ) {
   // Determine provider based on MODEL_EMBEDDING_NAME
-  const modelName = process.env.MODEL_EMBEDDING_NAME;
-  const provider = modelName && modelName.startsWith("sentence-transformers/")
-    ? "tei" as const
+  const rawName = process.env.MODEL_EMBEDDING_NAME?.trim();
+  const modelName = rawName && rawName.length > 0 ? rawName : undefined;
+  const provider = modelName?.toLowerCase().startsWith("sentence-transformers/")
+    ? ("tei" as const)
     : undefined;
-  
-  const finalModelName = provider 
+
+  const finalModelName = provider
     ? modelName || "sentence-transformers/all-MiniLM-L6-v2"
     : "text-embedding-3-small";
-  
+
   const { embedding } = await embed({
-    model: provider 
+    model: provider
       ? getEmbeddingModel(finalModelName, provider)
       : getEmbeddingModel(finalModelName),
     value: text,
@@ -42,8 +43,9 @@ async function getEmbedding(
 
   // Track embedding costs if cost tracking is provided
   if (costTracking) {
+    // Auto-detect language from text for better token estimation
     const cost = calculateEmbeddingCost(finalModelName, text);
-    
+
     costTracking.addCall({
       type: "other",
       metadata: {
@@ -97,7 +99,11 @@ async function performRanking(
     const sanitizedQuery = searchQuery;
 
     // Generate embeddings for the search query
-    const queryEmbedding = await getEmbedding(sanitizedQuery, metadata, costTracking);
+    const queryEmbedding = await getEmbedding(
+      sanitizedQuery,
+      metadata,
+      costTracking,
+    );
 
     // Generate embeddings for each link and calculate similarity in parallel
     const linksAndScores = await Promise.all(

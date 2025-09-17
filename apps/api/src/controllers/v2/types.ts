@@ -19,6 +19,7 @@ import { ErrorCodes } from "../../lib/error";
 import Ajv from "ajv";
 import { integrationSchema } from "../../utils/integration";
 import { webhookSchema } from "../../services/webhook/schema";
+import { API_CONTENT_TYPES } from "../../shared/content-types";
 
 export const url = z.preprocess(
   x => {
@@ -1457,7 +1458,11 @@ export type TokenUsage = {
 // Vector Search Types
 export const vectorSearchRequestSchema = z
   .object({
-    query: z.string().min(1).max(1000).describe("Natural language search query"),
+    query: z
+      .string()
+      .min(1)
+      .max(1000)
+      .describe("Natural language search query"),
     limit: z
       .number()
       .int()
@@ -1490,10 +1495,21 @@ export const vectorSearchRequestSchema = z
     filters: z
       .object({
         domain: z.string().optional().describe("Filter by specific domain"),
-        repository: z.string().optional().describe("Filter by GitHub repository name"),
-        repositoryOrg: z.string().optional().describe("Filter by GitHub organization"),
+        repository: z
+          .string()
+          .optional()
+          .describe("Filter by GitHub repository name"),
+        repositoryOrg: z
+          .string()
+          .optional()
+          .describe("Filter by GitHub organization"),
+        repositoryFullName: z
+          .string()
+          .regex(/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/)
+          .optional()
+          .describe("Filter by GitHub repository in 'org/repo' format"),
         contentType: z
-          .enum(["readme", "api-docs", "tutorial", "configuration", "code", "other"])
+          .enum(API_CONTENT_TYPES)
           .optional()
           .describe("Filter by content type"),
         dateRange: z
@@ -1512,6 +1528,41 @@ export const vectorSearchRequestSchema = z
           .optional()
           .describe("Filter by scrape date range"),
       })
+      .refine(
+        data => {
+          // Prevent ambiguous repository filtering
+          const hasRepoFullName = !!data.repositoryFullName;
+          const hasRepoFields = !!(data.repository || data.repositoryOrg);
+
+          if (hasRepoFullName && hasRepoFields) {
+            return false;
+          }
+
+          // If using separate fields, require both for complete filtering
+          if (data.repository && !data.repositoryOrg) {
+            return false;
+          }
+
+          return true;
+        },
+        {
+          message:
+            "Use either 'repositoryFullName' (org/repo) OR both 'repository' and 'repositoryOrg' together. Single 'repository' field is ambiguous.",
+        },
+      )
+      .transform(data => {
+        // Normalize repositoryFullName to separate fields
+        if (data.repositoryFullName) {
+          const [org, repo] = data.repositoryFullName.split("/");
+          return {
+            ...data,
+            repositoryOrg: org,
+            repository: repo,
+            repositoryFullName: undefined, // Remove after normalization
+          };
+        }
+        return data;
+      })
       .optional()
       .default({})
       .describe("Filtering options for search results"),
@@ -1521,7 +1572,6 @@ export const vectorSearchRequestSchema = z
   .strict(strictMessage);
 
 export type VectorSearchRequest = z.infer<typeof vectorSearchRequestSchema>;
-export type VectorSearchRequestInput = z.input<typeof vectorSearchRequestSchema>;
 
 export type VectorSearchResult = {
   id: string;
@@ -1564,7 +1614,7 @@ export type VectorSearchResponse =
       warning?: string;
     };
 
-const generateLLMsTextRequestSchema = z.object({
+export const generateLLMsTextRequestSchema = z.object({
   url: url.describe("The URL to generate text from"),
   maxUrls: z
     .number()
@@ -1583,4 +1633,6 @@ const generateLLMsTextRequestSchema = z.object({
   __experimental_stream: z.boolean().optional(),
 });
 
-type GenerateLLMsTextRequest = z.infer<typeof generateLLMsTextRequestSchema>;
+export type GenerateLLMsTextRequest = z.infer<
+  typeof generateLLMsTextRequestSchema
+>;

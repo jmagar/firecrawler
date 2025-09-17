@@ -62,7 +62,7 @@ Check out the following resources to get started:
 - [x] **Others**: [Zapier](https://zapier.com/apps/firecrawl/integrations), [Pabbly Connect](https://www.pabbly.com/connect/integrations/firecrawl/)
 - [ ] Want an SDK or Integration? Let us know by opening an issue.
 
-To run locally, refer to guide [here](https://github.com/firecrawl/firecrawl/blob/main/CONTRIBUTING.md).
+To run locally, refer to guide [here](https://github.com/firecrawl/firecrawl/blob/main/CONTRIBUTING.md). For self-hosting, see the [self-hosting guide](SELF_HOST.md).
 
 ### API Key
 
@@ -666,6 +666,63 @@ const extractRes = await firecrawl.extract({
 
 console.log(extractRes);
 ```
+
+## Configuration
+
+### YAML Configuration (Self-Hosted)
+
+For self-hosted deployments, Firecrawl supports YAML-based configuration to set default values for API requests. This eliminates the need to specify the same parameters repeatedly across API calls.
+
+#### Quick Setup
+
+1. **Create a configuration file** in your project root:
+   ```bash
+   cp defaults.example.yaml defaults.yaml
+   ```
+
+2. **Customize your defaults** by editing `defaults.yaml`:
+   ```yaml
+   scraping:
+     formats:
+       - type: markdown
+       - type: links
+     onlyMainContent: true
+     timeout: 30000
+   
+   crawling:
+     limit: 1000
+     maxDiscoveryDepth: 3
+     allowSubdomains: false
+   ```
+
+3. **For Docker deployments**, mount the config file:
+   ```bash
+   docker run -v ./defaults.yaml:/app/defaults.yaml firecrawl/firecrawl
+   ```
+
+#### Environment Variable Support
+
+Use environment variables in your configuration with `${VAR:-default}` syntax:
+
+```yaml
+scraping:
+  timeout: ${SCRAPE_TIMEOUT:-30000}
+  proxy: ${PROXY_MODE:-auto}
+
+features:
+  vectorStorage: ${ENABLE_VECTOR_STORAGE:-false}
+```
+
+#### Configuration Precedence
+
+Settings are applied in this priority order:
+1. **YAML configuration file** (highest priority)
+2. **Environment variable overrides** (`FIRECRAWL_CONFIG_OVERRIDE`)
+3. **Environment variables** (existing behavior)
+4. **Request parameters**
+5. **Built-in defaults** (lowest priority)
+
+For detailed configuration options and examples, see the [Configuration Guide](docs/configuration-guide.md).
 
 ## Open Source vs Cloud Offering
 

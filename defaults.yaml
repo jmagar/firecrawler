@@ -1,0 +1,27 @@
+# Test YAML Configuration for Firecrawl
+# This file demonstrates basic YAML configuration functionality
+
+scraping:
+  timeout: 60000
+  onlyMainContent: true
+  mobile: false
+  blockAds: true
+  headers:
+    User-Agent: "Mozilla/5.0 (compatible; FirecrawlBot/1.0; +https://firecrawl.dev)"
+
+language:
+  location:
+    country: "us"
+    languages: ["en"]
+
+crawling:
+  limit: 10000
+  allowExternalLinks: false
+  maxDiscoveryDepth: 3
+
+search:
+  limit: 20
+  timeout: 45000
+
+features:
+  vectorStorage: true

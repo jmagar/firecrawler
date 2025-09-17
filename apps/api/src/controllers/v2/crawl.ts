@@ -13,6 +13,9 @@ import { logger as _logger } from "../../lib/logger";
 import { generateCrawlerOptionsFromPrompt } from "../../scraper/scrapeURL/transformers/llmExtract";
 import { CostTracking } from "../../lib/cost-tracking";
 import { checkPermissions } from "../../lib/permissions";
+import { getLanguageExcludePatterns } from "../../lib/language-filter"; // removed .js extension
+// Memoize language patterns to avoid recomputing on every request
+const __languageExcludeCache = new Map<string, string[]>();
 
 export async function crawlController(
   req: RequestWithAuth<{}, CrawlResponse, CrawlRequest>,
@@ -107,6 +110,49 @@ export async function crawlController(
       preNormalizedBody[key] === null
     ) {
       finalCrawlerOptions[key] = value;
+    }
+  }
+
+  // Apply automatic language filtering if DEFAULT_CRAWL_LANGUAGE is set
+  const defaultLanguageRaw = process.env.DEFAULT_CRAWL_LANGUAGE;
+  const defaultLanguage = defaultLanguageRaw?.trim().toLowerCase() || undefined;
+  if (defaultLanguage && defaultLanguage !== "all") {
+    try {
+      const languageExcludePatterns =
+        __languageExcludeCache.get(defaultLanguage) ||
+        getLanguageExcludePatterns(defaultLanguage);
+      if (!__languageExcludeCache.has(defaultLanguage)) {
+        __languageExcludeCache.set(defaultLanguage, languageExcludePatterns);
+      }
+      if (languageExcludePatterns.length > 0) {
+        const existingExcludePaths = finalCrawlerOptions.excludePaths || [];
+        // merge then deduplicate while preserving order
+        const merged = [...existingExcludePaths, ...languageExcludePatterns];
+        const deduped = Array.from(new Set(merged));
+        finalCrawlerOptions.excludePaths = deduped;
+        const duplicatesRemoved = merged.length - deduped.length;
+        if (
+          !finalCrawlerOptions.regexOnFullURL &&
+          languageExcludePatterns.some(p => p.includes("://"))
+        ) {
+          finalCrawlerOptions.regexOnFullURL = true;
+          logger.debug(
+            "Enabled regexOnFullURL due to language patterns containing full URLs",
+          );
+        }
+        logger.info("Applied automatic language filtering", {
+          allowedLanguage: defaultLanguage,
+          patternsAdded: languageExcludePatterns.length,
+          totalExcludePatterns: finalCrawlerOptions.excludePaths.length,
+          duplicatesRemoved,
+          regexOnFullURL: finalCrawlerOptions.regexOnFullURL === true,
+        });
+      }
+    } catch (error) {
+      logger.warn("Failed to apply language filtering", {
+        defaultLanguage,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

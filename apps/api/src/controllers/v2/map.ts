@@ -18,6 +18,7 @@ import {
   isSameDomain,
   isSameSubdomain,
 } from "../../lib/validateUrl";
+import { filterUrlsByLanguage } from "../../lib/language-filter";
 import { fireEngineMap } from "../../search/fireEngine";
 import { billTeam } from "../../services/billing/credit_billing";
 import { logJob } from "../../services/logging/log_job";
@@ -311,6 +312,31 @@ async function getMapResults({
 
   if (!includeSubdomains) {
     mapResults = mapResults.filter(x => isSameSubdomain(x.url, url));
+  }
+
+  // Apply automatic language filtering if DEFAULT_CRAWL_LANGUAGE is set
+  const defaultLanguage = process.env.DEFAULT_CRAWL_LANGUAGE;
+  if (defaultLanguage && defaultLanguage.toLowerCase() !== 'all') {
+    try {
+      const urlList = mapResults.map(x => x.url);
+      const { included, excluded } = filterUrlsByLanguage(urlList, defaultLanguage);
+      
+      if (excluded.length > 0) {
+        mapResults = mapResults.filter(x => included.includes(x.url));
+        
+        logger.info("Applied automatic language filtering to map results", {
+          allowedLanguage: defaultLanguage,
+          originalCount: urlList.length,
+          filteredCount: mapResults.length,
+          excludedCount: excluded.length
+        });
+      }
+    } catch (error) {
+      logger.warn("Failed to apply language filtering to map results", {
+        defaultLanguage,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   if (filterByPath && !allowExternalLinks) {

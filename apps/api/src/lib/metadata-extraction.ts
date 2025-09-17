@@ -1,11 +1,11 @@
 /**
  * Metadata Extraction Utilities for HuggingFace TEI + pgvector Integration
- * 
+ *
  * Extracts technical documentation metadata from URLs and content for vector storage.
  * Designed for integration with both transformer pipeline and vector storage service.
  */
 
-export interface GitHubRepositoryMetadata {
+interface GitHubRepositoryMetadata {
   repository_org: string;
   repository_name: string;
   file_path?: string;
@@ -14,20 +14,20 @@ export interface GitHubRepositoryMetadata {
   file_extension?: string;
 }
 
-export interface ContentTypeClassification {
+interface ContentTypeClassification {
   content_type: string;
   confidence: number;
   indicators: string[];
 }
 
-export interface DomainMetadata {
+interface DomainMetadata {
   domain: string;
   subdomain?: string;
   is_documentation_site: boolean;
-  documentation_type?: 'github' | 'docs' | 'api' | 'wiki' | 'blog' | 'tutorial';
+  documentation_type?: "github" | "docs" | "api" | "wiki" | "blog" | "tutorial";
 }
 
-export interface DocumentMetadata {
+interface DocumentMetadata {
   title?: string;
   domain: string;
   word_count: number;
@@ -44,12 +44,15 @@ export interface DocumentMetadata {
 /**
  * Extracts GitHub repository information from URL
  */
-export function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | null {
+function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | null {
   try {
     const urlObj = new URL(url);
-    
+
     // Only process GitHub URLs
-    if (urlObj.hostname !== 'github.com' && urlObj.hostname !== 'raw.githubusercontent.com') {
+    if (
+      urlObj.hostname !== "github.com" &&
+      urlObj.hostname !== "raw.githubusercontent.com"
+    ) {
       return null;
     }
 
@@ -58,14 +61,26 @@ export function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | n
     // https://github.com/{org}/{repo}/blob/{branch}/{file_path}
     // https://github.com/{org}/{repo}/tree/{branch}/{directory_path}
     // https://raw.githubusercontent.com/{org}/{repo}/{branch}/{file_path}
-    
-    if (urlObj.hostname === 'raw.githubusercontent.com') {
-      const pathParts = urlObj.pathname.split('/').filter(part => part.length > 0);
+
+    if (urlObj.hostname === "raw.githubusercontent.com") {
+      const pathParts = urlObj.pathname
+        .split("/")
+        .filter(Boolean)
+        .map(p => {
+          try {
+            return decodeURIComponent(p);
+          } catch {
+            return p;
+          }
+        });
       if (pathParts.length >= 3) {
         const [org, repo, branch, ...fileParts] = pathParts;
-        const filePath = fileParts.join('/');
-        const fileExtension = filePath.includes('.') ? filePath.split('.').pop()?.toLowerCase() : undefined;
-        
+        const filePath = fileParts.length ? fileParts.join("/") : undefined;
+        const fileExtension =
+          filePath && filePath.includes(".")
+            ? filePath.split(".").pop()?.toLowerCase()
+            : undefined;
+
         return {
           repository_org: org,
           repository_name: repo,
@@ -76,25 +91,37 @@ export function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | n
         };
       }
     } else {
-      const pathParts = urlObj.pathname.split('/').filter(part => part.length > 0);
+      const pathParts = urlObj.pathname
+        .split("/")
+        .filter(Boolean)
+        .map(p => {
+          try {
+            return decodeURIComponent(p);
+          } catch {
+            return p;
+          }
+        });
       if (pathParts.length >= 2) {
         const [org, repo, ...remainingParts] = pathParts;
-        
+
         let filePath: string | undefined;
         let branchVersion: string | undefined;
         let fileExtension: string | undefined;
-        
+
         // Check for blob or tree paths
-        if (remainingParts.length >= 2 && (remainingParts[0] === 'blob' || remainingParts[0] === 'tree')) {
+        if (
+          remainingParts.length >= 2 &&
+          (remainingParts[0] === "blob" || remainingParts[0] === "tree")
+        ) {
           branchVersion = remainingParts[1];
           if (remainingParts.length > 2) {
-            filePath = remainingParts.slice(2).join('/');
-            if (filePath.includes('.')) {
-              fileExtension = filePath.split('.').pop()?.toLowerCase();
+            filePath = remainingParts.slice(2).join("/");
+            if (filePath.includes(".")) {
+              fileExtension = filePath.split(".").pop()?.toLowerCase();
             }
           }
         }
-        
+
         return {
           repository_org: org,
           repository_name: repo,
@@ -109,112 +136,151 @@ export function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | n
     // Invalid URL, return null
     return null;
   }
-  
+
   return null;
 }
 
 /**
  * Detects content type based on URL patterns and content analysis
  */
-export function classifyContentType(url: string, content?: string): ContentTypeClassification {
+function classifyContentType(
+  url: string,
+  content?: string,
+): ContentTypeClassification {
   const indicators: string[] = [];
-  let contentType = 'general';
+  let contentType = "general";
   let confidence = 0.5;
 
   try {
     const urlObj = new URL(url);
     const pathname = urlObj.pathname.toLowerCase();
-    const filename = pathname.split('/').pop() || '';
-    
+    const filename = (() => {
+      const parts = pathname.split("/").filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : "";
+    })();
+
     // README detection
-    if (filename.match(/^readme\.(md|txt|rst)$/i) || filename === 'readme') {
-      contentType = 'readme';
+    if (filename.match(/^readme\.(md|txt|rst)$/i) || filename === "readme") {
+      contentType = "readme";
       confidence = 0.95;
-      indicators.push('filename_readme');
+      indicators.push("filename_readme");
     }
     // API documentation patterns
-    else if (pathname.includes('/api/') || pathname.includes('/docs/api') || 
-             pathname.includes('/reference/') || filename.includes('api')) {
-      contentType = 'api_documentation';
+    else if (
+      pathname.includes("/api/") ||
+      pathname.includes("/docs/api") ||
+      pathname.includes("/reference/") ||
+      /\bapi\b/i.test(filename)
+    ) {
+      contentType = "api_documentation";
       confidence = 0.8;
-      indicators.push('url_api_pattern');
+      indicators.push("url_api_pattern");
     }
     // Tutorial patterns
-    else if (pathname.includes('/tutorial') || pathname.includes('/guide') ||
-             pathname.includes('/getting-started') || pathname.includes('/quickstart')) {
-      contentType = 'tutorial';
+    else if (
+      pathname.includes("/tutorial") ||
+      pathname.includes("/guide") ||
+      pathname.includes("/getting-started") ||
+      pathname.includes("/quickstart")
+    ) {
+      contentType = "tutorial";
       confidence = 0.8;
-      indicators.push('url_tutorial_pattern');
+      indicators.push("url_tutorial_pattern");
     }
     // Configuration files
     else if (filename.match(/\.(json|yaml|yml|toml|ini|conf|config)$/i)) {
-      contentType = 'configuration';
+      contentType = "configuration";
       confidence = 0.9;
-      indicators.push('config_file_extension');
+      indicators.push("config_file_extension");
     }
     // Code files
-    else if (filename.match(/\.(js|ts|py|java|cpp|c|go|rs|rb|php|html|css|scss|less)$/i)) {
-      contentType = 'code';
+    else if (
+      filename.match(
+        /\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|py|ipynb|java|cpp|cxx|cc|c|hpp|go|rs|rb|php|swift|kt|scala|sh|bash|zsh|fish|ps1|cs|dart|r|sql|html|css|scss|less|vue|svelte)$/i,
+      )
+    ) {
+      contentType = "code";
       confidence = 0.9;
-      indicators.push('code_file_extension');
+      indicators.push("code_file_extension");
     }
     // Documentation files
-    else if (filename.match(/\.(md|rst|txt)$/i) || pathname.includes('/docs/')) {
-      contentType = 'documentation';
+    else if (
+      filename.match(/\.(md|rst|txt)$/i) ||
+      pathname.includes("/docs/")
+    ) {
+      contentType = "documentation";
       confidence = 0.7;
-      indicators.push('documentation_pattern');
+      indicators.push("documentation_pattern");
     }
-    
+
     // Content-based detection if content is provided
     if (content) {
       const lowerContent = content.toLowerCase();
-      
+
       // API documentation indicators
-      if (lowerContent.includes('api endpoint') || lowerContent.includes('api reference') ||
-          lowerContent.includes('http method') || lowerContent.includes('request/response')) {
-        if (contentType === 'general') {
-          contentType = 'api_documentation';
+      if (
+        lowerContent.includes("api endpoint") ||
+        lowerContent.includes("api reference") ||
+        lowerContent.includes("http method") ||
+        lowerContent.includes("request/response")
+      ) {
+        if (contentType === "general") {
+          contentType = "api_documentation";
           confidence = 0.7;
-        } else if (contentType === 'api_documentation') {
+        } else if (contentType === "api_documentation") {
           confidence = Math.min(confidence + 0.1, 0.95);
         }
-        indicators.push('content_api_indicators');
+        indicators.push("content_api_indicators");
       }
-      
+
       // Tutorial indicators
-      if (lowerContent.includes('step 1') || lowerContent.includes('getting started') ||
-          lowerContent.includes('tutorial') || lowerContent.includes('walkthrough')) {
-        if (contentType === 'general') {
-          contentType = 'tutorial';
+      if (
+        lowerContent.includes("step 1") ||
+        lowerContent.includes("getting started") ||
+        lowerContent.includes("tutorial") ||
+        lowerContent.includes("walkthrough")
+      ) {
+        if (contentType === "general") {
+          contentType = "tutorial";
           confidence = 0.7;
-        } else if (contentType === 'tutorial') {
+        } else if (contentType === "tutorial") {
           confidence = Math.min(confidence + 0.1, 0.95);
         }
-        indicators.push('content_tutorial_indicators');
+        indicators.push("content_tutorial_indicators");
       }
-      
+
       // Installation/setup documentation
-      if (lowerContent.includes('install') || lowerContent.includes('setup') ||
-          lowerContent.includes('npm install') || lowerContent.includes('pip install')) {
-        if (contentType === 'general') {
-          contentType = 'installation_guide';
+      if (
+        lowerContent.includes("install") ||
+        lowerContent.includes("setup") ||
+        lowerContent.includes("npm install") ||
+        lowerContent.includes("pip install")
+      ) {
+        if (contentType === "general") {
+          contentType = "installation_guide";
           confidence = 0.7;
         }
-        indicators.push('content_installation_indicators');
+        indicators.push("content_installation_indicators");
       }
-      
+
       // Changelog detection
-      if (lowerContent.includes('changelog') || lowerContent.includes('release notes') ||
-          lowerContent.includes('version') && lowerContent.includes('changes')) {
-        contentType = 'changelog';
-        confidence = 0.8;
-        indicators.push('content_changelog_indicators');
+      if (
+        lowerContent.includes("changelog") ||
+        lowerContent.includes("release notes") ||
+        (lowerContent.includes("version") && lowerContent.includes("changes"))
+      ) {
+        if (contentType === "general" || confidence < 0.75) {
+          contentType = "changelog";
+          confidence = Math.max(confidence, 0.8);
+        } else {
+          confidence = Math.min(confidence + 0.05, 0.95);
+        }
+        indicators.push("content_changelog_indicators");
       }
     }
-
   } catch (error) {
     // Invalid URL, use fallback detection
-    contentType = 'general';
+    contentType = "general";
     confidence = 0.3;
   }
 
@@ -228,65 +294,79 @@ export function classifyContentType(url: string, content?: string): ContentTypeC
 /**
  * Extracts domain and subdomain information with documentation site detection
  */
-export function extractDomainMetadata(url: string): DomainMetadata {
+function extractDomainMetadata(url: string): DomainMetadata {
   try {
     const urlObj = new URL(url);
     const hostname = urlObj.hostname.toLowerCase();
-    const parts = hostname.split('.');
-    
+    const parts = hostname.split(".");
+
     let domain = hostname;
     let subdomain: string | undefined;
-    
+
     // Extract main domain and subdomain
     if (parts.length >= 3) {
       // For domains like docs.example.com or api.github.com
-      subdomain = parts.slice(0, -2).join('.');
-      domain = parts.slice(-2).join('.');
+      subdomain = parts.slice(0, -2).join(".");
+      domain = parts.slice(-2).join(".");
     } else if (parts.length === 2) {
       domain = hostname;
     }
-    
+
     // Detect if this is a documentation site
     let isDocumentationSite = false;
-    let documentationType: DomainMetadata['documentation_type'];
-    
+    let documentationType: DomainMetadata["documentation_type"];
+
     // GitHub detection
-    if (domain === 'github.com' || domain === 'raw.githubusercontent.com') {
+    if (domain === "github.com" || hostname === "raw.githubusercontent.com") {
       isDocumentationSite = true;
-      documentationType = 'github';
+      documentationType = "github";
     }
     // Common documentation subdomains
-    else if (subdomain && ['docs', 'documentation', 'api', 'dev', 'developers'].includes(subdomain)) {
+    else if (
+      subdomain &&
+      ["docs", "documentation", "api", "dev", "developers"].includes(subdomain)
+    ) {
       isDocumentationSite = true;
-      if (subdomain === 'api') documentationType = 'api';
-      else if (subdomain === 'docs' || subdomain === 'documentation') documentationType = 'docs';
-      else documentationType = 'docs';
+      if (subdomain === "api") documentationType = "api";
+      else if (subdomain === "docs" || subdomain === "documentation")
+        documentationType = "docs";
+      else documentationType = "docs";
     }
     // Wiki sites
-    else if (hostname.includes('wiki') || subdomain?.includes('wiki')) {
+    else if (hostname.includes("wiki") || subdomain?.includes("wiki")) {
       isDocumentationSite = true;
-      documentationType = 'wiki';
+      documentationType = "wiki";
     }
     // Blog platforms
-    else if (['medium.com', 'dev.to', 'hashnode.com'].includes(domain) ||
-             subdomain?.includes('blog')) {
+    else if (
+      ["medium.com", "dev.to", "hashnode.com"].includes(domain) ||
+      subdomain === "blog" ||
+      subdomain?.startsWith("blog.")
+    ) {
       isDocumentationSite = true;
-      documentationType = 'blog';
+      documentationType = "blog";
     }
     // Documentation hosting services
-    else if (['readthedocs.io', 'gitbook.io', 'notion.so', 'gitiles.com'].some(service => 
-             hostname.includes(service))) {
+    else if (
+      ["readthedocs.io", "gitbook.io", "notion.so", "gitiles.com"].some(
+        service => hostname === service || hostname.endsWith("." + service),
+      )
+    ) {
       isDocumentationSite = true;
-      documentationType = 'docs';
+      documentationType = "docs";
     }
-    
+    // GitHub Pages
+    else if (hostname.endsWith(".github.io")) {
+      isDocumentationSite = true;
+      documentationType = "docs";
+    }
+
     return {
       domain,
       subdomain,
       is_documentation_site: isDocumentationSite,
       documentation_type: documentationType,
     };
-    
   } catch (error) {
     // Invalid URL, return basic info
     return {
@@ -299,110 +379,183 @@ export function extractDomainMetadata(url: string): DomainMetadata {
 /**
  * Determines programming language from file extension and content
  */
-export function detectProgrammingLanguage(filePath?: string, content?: string): string | undefined {
+function detectProgrammingLanguage(
+  filePath?: string,
+  content?: string,
+): string | undefined {
   if (!filePath && !content) return undefined;
-  
+
   // Extension-based detection
   if (filePath) {
-    const extension = filePath.split('.').pop()?.toLowerCase();
+    const extension = filePath.split(".").pop()?.toLowerCase();
     const extensionMap: Record<string, string> = {
-      'js': 'javascript',
-      'jsx': 'javascript',
-      'ts': 'typescript',
-      'tsx': 'typescript',
-      'py': 'python',
-      'java': 'java',
-      'cpp': 'cpp',
-      'cxx': 'cpp',
-      'cc': 'cpp',
-      'c': 'c',
-      'go': 'go',
-      'rs': 'rust',
-      'rb': 'ruby',
-      'php': 'php',
-      'swift': 'swift',
-      'kt': 'kotlin',
-      'scala': 'scala',
-      'sh': 'bash',
-      'bash': 'bash',
-      'zsh': 'zsh',
-      'fish': 'fish',
-      'ps1': 'powershell',
-      'r': 'r',
-      'sql': 'sql',
-      'html': 'html',
-      'css': 'css',
-      'scss': 'scss',
-      'less': 'less',
-      'vue': 'vue',
-      'svelte': 'svelte',
+      js: "javascript",
+      jsx: "javascript",
+      mjs: "javascript",
+      cjs: "javascript",
+      ts: "typescript",
+      tsx: "typescript",
+      mts: "typescript",
+      cts: "typescript",
+      py: "python",
+      ipynb: "python",
+      java: "java",
+      cpp: "cpp",
+      cxx: "cpp",
+      cc: "cpp",
+      c: "c",
+      hpp: "cpp",
+      go: "go",
+      rs: "rust",
+      rb: "ruby",
+      php: "php",
+      swift: "swift",
+      kt: "kotlin",
+      scala: "scala",
+      sh: "bash",
+      bash: "bash",
+      zsh: "zsh",
+      fish: "fish",
+      ps1: "powershell",
+      cs: "csharp",
+      dart: "dart",
+      r: "r",
+      sql: "sql",
+      html: "html",
+      css: "css",
+      scss: "scss",
+      less: "less",
+      vue: "vue",
+      svelte: "svelte",
     };
-    
+
     if (extension && extensionMap[extension]) {
       return extensionMap[extension];
     }
   }
-  
+
   // Content-based detection (basic patterns)
   if (content) {
     const lowerContent = content.toLowerCase();
-    
-    if (lowerContent.includes('def ') && lowerContent.includes('import ')) return 'python';
-    if (lowerContent.includes('function ') && lowerContent.includes('const ')) return 'javascript';
-    if (lowerContent.includes('interface ') && lowerContent.includes('type ')) return 'typescript';
-    if (lowerContent.includes('public class') && lowerContent.includes('static void')) return 'java';
-    if (lowerContent.includes('#include') && lowerContent.includes('int main')) return 'c';
-    if (lowerContent.includes('func ') && lowerContent.includes('package ')) return 'go';
-    if (lowerContent.includes('fn ') && lowerContent.includes('let ')) return 'rust';
+
+    if (lowerContent.includes("def ") && lowerContent.includes("import "))
+      return "python";
+    if (lowerContent.includes("interface ") && lowerContent.includes("type "))
+      return "typescript";
+    if (lowerContent.includes("function ") && lowerContent.includes("const "))
+      return "javascript";
+    if (
+      lowerContent.includes("using system") &&
+      lowerContent.includes("namespace ")
+    )
+      return "csharp";
+    if (
+      lowerContent.includes("public class") &&
+      lowerContent.includes("static void")
+    )
+      return "java";
+    if (lowerContent.includes("#include") && lowerContent.includes("int main"))
+      return "c";
+    if (lowerContent.includes("func ") && lowerContent.includes("package "))
+      return "go";
+    if (lowerContent.includes("fn ") && lowerContent.includes("let "))
+      return "rust";
   }
-  
+
   return undefined;
 }
 
 /**
  * Counts words in content (excluding code blocks and HTML)
+ * Uses Intl.Segmenter for better CJK language support when available
  */
-export function countWords(content: string): number {
+function countWords(content: string): number {
   if (!content) return 0;
-  
-  // Remove code blocks
   const withoutCodeBlocks = content
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/`[^`]*`/g, '');
-  
-  // Remove HTML tags
-  const withoutHtml = withoutCodeBlocks.replace(/<[^>]*>/g, '');
-  
-  // Split by whitespace and filter out empty strings
-  const words = withoutHtml
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/`[^`]*`/g, "");
+  const withoutHtml = withoutCodeBlocks.replace(/<[^>]*>/g, "");
+
+  if ((Intl as any).Segmenter) {
+    const seg = new (Intl as any).Segmenter(undefined, { granularity: "word" });
+    let count = 0;
+    for (const { isWordLike } of seg.segment(withoutHtml) as any)
+      if (isWordLike) count++;
+    return count;
+  }
+
+  return withoutHtml
     .split(/\s+/)
-    .filter(word => word.length > 0)
-    .filter(word => !/^[^\w]*$/.test(word)); // Remove strings with no word characters
-  
-  return words.length;
+    .filter(w => w.length > 0 && !/^[^\w]*$/.test(w)).length;
 }
 
 /**
  * Determines if a file is a code file based on extension and content
  */
-export function isCodeFile(filePath?: string, content?: string): boolean {
+function isCodeFile(filePath?: string, content?: string): boolean {
   if (!filePath && !content) return false;
-  
+
   // Check by extension
   if (filePath) {
-    const extension = filePath.split('.').pop()?.toLowerCase();
+    const extension = filePath.split(".").pop()?.toLowerCase();
     const codeExtensions = [
-      'js', 'jsx', 'ts', 'tsx', 'py', 'java', 'cpp', 'cxx', 'cc', 'c', 'h', 'hpp',
-      'go', 'rs', 'rb', 'php', 'swift', 'kt', 'scala', 'sh', 'bash', 'zsh', 'fish',
-      'ps1', 'r', 'sql', 'html', 'css', 'scss', 'less', 'vue', 'svelte', 'dart',
-      'elm', 'ex', 'exs', 'clj', 'cljs', 'fs', 'fsx', 'hs', 'lhs', 'ml', 'mli'
+      "js",
+      "jsx",
+      "mjs",
+      "cjs",
+      "ts",
+      "tsx",
+      "mts",
+      "cts",
+      "py",
+      "ipynb",
+      "java",
+      "cpp",
+      "cxx",
+      "cc",
+      "c",
+      "h",
+      "hpp",
+      "go",
+      "rs",
+      "rb",
+      "php",
+      "swift",
+      "kt",
+      "scala",
+      "sh",
+      "bash",
+      "zsh",
+      "fish",
+      "ps1",
+      "cs",
+      "dart",
+      "r",
+      "sql",
+      "html",
+      "css",
+      "scss",
+      "less",
+      "vue",
+      "svelte",
+      "elm",
+      "ex",
+      "exs",
+      "clj",
+      "cljs",
+      "fs",
+      "fsx",
+      "hs",
+      "lhs",
+      "ml",
+      "mli",
     ];
-    
+
     if (extension && codeExtensions.includes(extension)) {
       return true;
     }
   }
-  
+
   // Check by content patterns
   if (content) {
     const codePatterns = [
@@ -416,11 +569,11 @@ export function isCodeFile(filePath?: string, content?: string): boolean {
       /let\s+\w+\s*=/,
       /var\s+\w+\s*=/,
     ];
-    
+
     const hasCodePatterns = codePatterns.some(pattern => pattern.test(content));
     if (hasCodePatterns) return true;
   }
-  
+
   return false;
 }
 
@@ -430,29 +583,41 @@ export function isCodeFile(filePath?: string, content?: string): boolean {
 export function extractDocumentMetadata(
   url: string,
   content?: string,
-  title?: string
+  title?: string,
 ): DocumentMetadata {
   const githubMetadata = extractGitHubMetadata(url);
   const contentClassification = classifyContentType(url, content);
   const domainMetadata = extractDomainMetadata(url);
   const wordCount = content ? countWords(content) : 0;
-  
-  let fileMetadata: DocumentMetadata['file_metadata'];
-  
+
+  let fileMetadata: DocumentMetadata["file_metadata"];
+
   // Extract file metadata if we have path information
-  const filePath = githubMetadata?.file_path || url.split('/').pop();
+  const filePathFromUrl = (() => {
+    try {
+      const { pathname } = new URL(url);
+      const parts = pathname.split("/").filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+  const filePath = githubMetadata?.file_path || filePathFromUrl;
   if (filePath) {
     const isCode = isCodeFile(filePath, content);
     const programmingLanguage = detectProgrammingLanguage(filePath, content);
-    const extension = filePath.includes('.') ? filePath.split('.').pop()?.toLowerCase() : undefined;
-    
+    const extension =
+      filePath && filePath.includes(".")
+        ? filePath.split(".").pop()?.toLowerCase()
+        : undefined;
+
     fileMetadata = {
       extension,
       is_code_file: isCode,
       programming_language: programmingLanguage,
     };
   }
-  
+
   return {
     title,
     domain: domainMetadata.domain,
@@ -467,7 +632,9 @@ export function extractDocumentMetadata(
 /**
  * Utility function to format metadata for vector storage
  */
-export function formatMetadataForStorage(metadata: DocumentMetadata): Record<string, string | number | boolean | undefined> {
+export function formatMetadataForStorage(
+  metadata: DocumentMetadata,
+): Record<string, string | number | boolean | undefined> {
   return {
     title: metadata.title,
     domain: metadata.domain,

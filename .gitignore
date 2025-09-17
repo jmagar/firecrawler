@@ -12,7 +12,7 @@ apps/js-sdk/node_modules/
 apps/api/.env.local
 
 apps/test-suite/node_modules/
-
+.docs/
 
 apps/test-suite/.env
 apps/test-suite/logs
@@ -46,3 +46,4 @@ gke-key.json
 CLAUDE.local.md
 
 *.egg-info/
+*.egg

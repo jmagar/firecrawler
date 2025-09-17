@@ -1,0 +1,126 @@
+# Pre-commit configuration for Firecrawl MCP Server
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+repos:
+  # Ruff for linting and formatting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      # Run the linter
+      - id: ruff
+        name: ruff-lint
+        description: "Run Ruff linter"
+        args: ["--fix", "--exit-non-zero-on-fix"]
+        types_or: [python, pyi]
+        
+      # Run the formatter
+      - id: ruff-format
+        name: ruff-format
+        description: "Run Ruff formatter"
+        types_or: [python, pyi]
+
+  # MyPy for static type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        name: mypy-type-check
+        description: "Run MyPy static type checking"
+        files: ^firecrawl_mcp/
+        exclude: ^firecrawl_mcp/tests/
+        additional_dependencies:
+          - fastmcp>=2.12.2
+          - pydantic>=2.0
+          - httpx
+          - python-dotenv
+          - structlog
+          - types-requests
+        args:
+          - --config-file=pyproject.toml
+          - --cache-dir=.cache/mypy
+
+  # Built-in hooks for general code quality
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      # Remove trailing whitespace
+      - id: trailing-whitespace
+        exclude: ^docs/
+
+      # Ensure files end with a newline
+      - id: end-of-file-fixer
+        exclude: ^docs/
+
+      # Check for files that would conflict in case-insensitive filesystems
+      - id: check-case-conflict
+
+      # Check for merge conflict markers
+      - id: check-merge-conflict
+
+      # Check YAML files are valid
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+
+      # Check TOML files are valid
+      - id: check-toml
+
+      # Check JSON files are valid
+      - id: check-json
+
+      # Check for Python syntax errors or undefined names
+      - id: check-ast
+
+      # Check for debugger imports
+      - id: debug-statements
+
+      # Check for large files that shouldn't be committed
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+
+      # Check that Python files have a valid shebang
+      - id: check-shebang-scripts-are-executable
+
+      # Check for private key files
+      - id: detect-private-key
+
+  # Security checking with bandit
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.9
+    hooks:
+      - id: bandit
+        name: bandit-security-check
+        description: "Run Bandit security linter"
+        args: ["-c", "pyproject.toml", "-ll", "-q"]
+        files: ^firecrawl_mcp/
+        exclude: ^firecrawl_mcp/tests/
+
+# Global configuration
+default_language_version:
+  python: python3.11
+
+# Define which stages to run hooks on
+default_stages: [commit, push]
+
+# Exclude patterns
+exclude: |
+  (?x)^(
+      \.cache/.*|
+      \.git/.*|
+      \.mypy_cache/.*|
+      \.pytest_cache/.*|
+      \.ruff_cache/.*|
+      __pycache__/.*|
+      build/.*|
+      dist/.*|
+      logs/.*|
+      node_modules/.*|
+      \.env.*|
+      uv\.lock
+  )$
+
+# Fail fast - stop running hooks after the first failure
+fail_fast: true
+
+# Minimum pre-commit version required
+minimum_pre_commit_version: 3.5.0

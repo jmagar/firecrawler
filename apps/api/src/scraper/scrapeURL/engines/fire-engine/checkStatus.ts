@@ -150,7 +150,16 @@ export async function fireEngineCheckStatus(
 
   // Fire-engine now saves the content to GCS
   if (!status.content && status.docUrl) {
-    const doc = await getDocFromGCS(status.docUrl.split("/").pop() ?? "");
+    const docId = (() => {
+      try {
+        const { pathname } = new URL(status.docUrl);
+        const parts = pathname.split("/").filter(Boolean);
+        return parts.length ? parts[parts.length - 1] : "";
+      } catch {
+        return status.docUrl.split("/").pop() ?? "";
+      }
+    })();
+    const doc = await getDocFromGCS(docId);
     if (doc) {
       status = { ...status, ...doc };
       delete status.docUrl;

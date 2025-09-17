@@ -435,3 +435,68 @@ export interface QueueStatusResponse {
   maxConcurrency: number;
   mostRecentSuccess: string | null;
 }
+
+// Vector Search Types
+
+export interface VectorSearchFilters {
+  domain?: string;
+  repository?: string;
+  repositoryOrg?: string;
+  repositoryFullName?: string;
+  contentType?: "readme" | "api-docs" | "tutorial" | "configuration" | "code" | "other";
+  dateRange?: {
+    from?: string;
+    to?: string;
+  };
+}
+
+export interface VectorSearchRequest {
+  query: string;
+  limit?: number;
+  offset?: number;
+  threshold?: number;
+  includeContent?: boolean;
+  filters?: VectorSearchFilters;
+  origin?: string;
+  integration?: string;
+}
+
+export interface VectorSearchResult {
+  id: string;
+  url: string;
+  title?: string;
+  content?: string;
+  similarity: number;
+  metadata: {
+    sourceURL: string;
+    scrapedAt: string;
+    domain?: string;
+    repositoryName?: string;
+    repositoryOrg?: string;
+    filePath?: string;
+    branchVersion?: string;
+    contentType?: string;
+    wordCount?: number;
+    [key: string]: unknown;
+  };
+}
+
+export interface VectorSearchResponse {
+  success: boolean;
+  data?: {
+    results: VectorSearchResult[];
+    query: string;
+    totalResults: number;
+    limit: number;
+    offset: number;
+    threshold: number;
+    timing: {
+      queryEmbeddingMs: number;
+      vectorSearchMs: number;
+      totalMs: number;
+    };
+  };
+  creditsUsed?: number;
+  error?: string;
+  warning?: string;
+}

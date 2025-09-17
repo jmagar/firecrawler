@@ -9,7 +9,10 @@ import {
 import { billTeam } from "../../services/billing/credit_billing";
 import { v4 as uuidv4 } from "uuid";
 import { logJob } from "../../services/logging/log_job";
-import { vectorSearch, validateVectorSearchRequest } from "../../search/v2/vector-search";
+import {
+  vectorSearch,
+  validateVectorSearchRequest,
+} from "../../search/v2/vector-search";
 import * as Sentry from "@sentry/node";
 import { logger as _logger } from "../../lib/logger";
 import type { Logger } from "winston";
@@ -56,8 +59,8 @@ export async function vectorSearchController(
     // Additional validation using our custom validator
     const validationErrors = validateVectorSearchRequest(req.body);
     if (validationErrors.length > 0) {
-      logger.warn("Vector search request validation failed", { 
-        errors: validationErrors 
+      logger.warn("Vector search request validation failed", {
+        errors: validationErrors,
       });
       return res.status(400).json({
         success: false,
@@ -91,7 +94,7 @@ export async function vectorSearchController(
       logger.error("Vector search service returned error", {
         error: errorResponse.error,
       });
-      
+
       return res.status(500).json({
         success: false,
         error: errorResponse.error || "Vector search failed",
@@ -192,7 +195,7 @@ export async function vectorSearchController(
 
     // Handle unexpected errors
     Sentry.captureException(error);
-    logger.error("Unhandled error occurred in vector search", { 
+    logger.error("Unhandled error occurred in vector search", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });

@@ -20,26 +20,23 @@ x-common-env: &common-env
   REDIS_RATE_LIMIT_URL: ${REDIS_URL:-redis://redis:6379}
   PLAYWRIGHT_MICROSERVICE_URL: ${PLAYWRIGHT_MICROSERVICE_URL:-http://playwright-service:3000/scrape}
   NUQ_DATABASE_URL: postgres://postgres:postgres@nuq-postgres:5432/postgres
-  USE_DB_AUTHENTICATION: ${USE_DB_AUTHENTICATION}
   OPENAI_API_KEY: ${OPENAI_API_KEY}
-  OPENAI_BASE_URL: ${OPENAI_BASE_URL}
   MODEL_NAME: ${MODEL_NAME}
   MODEL_EMBEDDING_NAME: ${MODEL_EMBEDDING_NAME} 
-  OLLAMA_BASE_URL: ${OLLAMA_BASE_URL} 
   # HuggingFace TEI + Vector Storage Configuration
   TEI_URL: ${TEI_URL:-http://tei-service:8080}
   ENABLE_VECTOR_STORAGE: ${ENABLE_VECTOR_STORAGE:-true}
   VECTOR_STORAGE_ASYNC: ${VECTOR_STORAGE_ASYNC:-true}
   MIN_SIMILARITY_THRESHOLD: ${MIN_SIMILARITY_THRESHOLD:-0.7}
-  VECTOR_DIMENSION: ${VECTOR_DIMENSION:-384}
+  VECTOR_DIMENSION: ${VECTOR_DIMENSION:-1024}
   BULL_AUTH_KEY: ${BULL_AUTH_KEY}
-  SELF_HOSTED_WEBHOOK_URL: ${SELF_HOSTED_WEBHOOK_URL}
   LOGGING_LEVEL: ${LOGGING_LEVEL}
   SEARXNG_ENDPOINT: ${SEARXNG_ENDPOINT}
   SEARXNG_ENGINES: ${SEARXNG_ENGINES}
   SEARXNG_CATEGORIES: ${SEARXNG_CATEGORIES}
   MAX_CPU: ${MAX_CPU}
   MAX_RAM: ${MAX_RAM}
+  DEFAULT_CRAWL_LANGUAGE: ${DEFAULT_CRAWL_LANGUAGE}
 
 services:
   playwright-service:
@@ -70,6 +67,8 @@ services:
         condition: service_started
     ports:
       - "${PORT:-3002}:${INTERNAL_PORT:-3002}"
+    volumes:
+      - ./defaults.yaml:/app/defaults.yaml:ro
     command: node dist/src/harness.js --start-docker
 
   redis:
@@ -89,6 +88,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
+    volumes:
+      - nuq_postgres_data:/var/lib/postgresql/data
     networks:
       - backend
     ports:
@@ -102,3 +103,7 @@ services:
 networks:
   backend:
     driver: bridge
+
+volumes:
+  nuq_postgres_data:
+    driver: local
