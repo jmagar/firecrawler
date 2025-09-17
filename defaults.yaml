@@ -3,11 +3,11 @@
 
 scraping:
   timeout: 60000
-  onlyMainContent: false
-  mobile: true
-  blockAds: false
+  onlyMainContent: true
+  mobile: false
+  blockAds: true
   headers:
-    User-Agent: "File Watching Test - Auto Reload Check"
+    User-Agent: "Mozilla/5.0 (compatible; FirecrawlBot/1.0; +https://firecrawl.dev)"
 
 language:
   location:
@@ -15,8 +15,9 @@ language:
     languages: ["en"]
 
 crawling:
-  limit: 50
-  allowExternalLinks: true
+  limit: 10000
+  allowExternalLinks: false
+  maxDiscoveryDepth: 3
 
 search:
   limit: 20
