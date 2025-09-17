@@ -46,7 +46,7 @@ def register_scrape_tools(mcp_instance):
             min_length=1,
             max_length=2048
         )],
-        options: ScrapeOptions | None = Field(
+        scrape_options: ScrapeOptions | None = Field(
             default=None,
             description="Optional scraping configuration including format, filters, and extraction options"
         )
@@ -59,7 +59,7 @@ def register_scrape_tools(mcp_instance):
         
         Args:
             url: URL to scrape
-            options: Optional scraping configuration
+            scrape_options: Optional scraping configuration
             ctx: MCP context for logging and progress reporting
             
         Returns:
@@ -79,42 +79,46 @@ def register_scrape_tools(mcp_instance):
                 raise ToolError("URL cannot be empty")
 
             # Perform the scrape
-            await ctx.info(f"Scraping URL with options: {options is not None}")
+            await ctx.info(f"Scraping URL with options: {scrape_options is not None}")
             
             # Unpack ScrapeOptions into individual keyword arguments for v2 API
             scrape_kwargs = {}
-            if options:
+            if scrape_options:
                 # Manually map ScrapeOptions fields to avoid any internal field conflicts
                 field_mapping = {
-                    'formats': options.formats,
-                    'headers': options.headers,
-                    'include_tags': options.include_tags,
-                    'exclude_tags': options.exclude_tags,
-                    'only_main_content': options.only_main_content,
-                    'timeout': options.timeout,
-                    'wait_for': options.wait_for,
-                    'mobile': options.mobile,
-                    'parsers': options.parsers,
-                    'actions': options.actions,
-                    'location': options.location,
-                    'skip_tls_verification': options.skip_tls_verification,
-                    'remove_base64_images': options.remove_base64_images,
-                    'fast_mode': options.fast_mode,
-                    'use_mock': options.use_mock,
-                    'block_ads': options.block_ads,
-                    'proxy': options.proxy,
-                    'max_age': options.max_age,
-                    'store_in_cache': options.store_in_cache,
-                    'integration': options.integration,
+                    'formats': scrape_options.formats,
+                    'headers': scrape_options.headers,
+                    'include_tags': scrape_options.include_tags,
+                    'exclude_tags': scrape_options.exclude_tags,
+                    'only_main_content': scrape_options.only_main_content,
+                    'timeout': scrape_options.timeout,
+                    'wait_for': scrape_options.wait_for,
+                    'mobile': scrape_options.mobile,
+                    'parsers': scrape_options.parsers,
+                    'actions': scrape_options.actions,
+                    'location': scrape_options.location,
+                    'skip_tls_verification': scrape_options.skip_tls_verification,
+                    'remove_base64_images': scrape_options.remove_base64_images,
+                    'fast_mode': scrape_options.fast_mode,
+                    'use_mock': scrape_options.use_mock,
+                    'block_ads': scrape_options.block_ads,
+                    'proxy': scrape_options.proxy,
+                    'max_age': scrape_options.max_age,
+                    'store_in_cache': scrape_options.store_in_cache,
+                    'integration': scrape_options.integration,
                 }
                 # Only include non-None values
                 scrape_kwargs = {k: v for k, v in field_mapping.items() if v is not None}
+            
+            # Debug: print what we're about to pass
+            await ctx.info(f"DEBUG: Calling client.scrape with url='{url}' and kwargs: {list(scrape_kwargs.keys())}")
             
             document = client.scrape(url, **scrape_kwargs)
 
             # Log success
             await ctx.info(f"Successfully scraped URL: {url}")
-            logger.info(f"Scrape completed for {url}, content length: {len(document.content or '')}")
+            content_length = len(document.markdown or document.html or '')
+            logger.info(f"Scrape completed for {url}, content length: {content_length}")
 
             return document
 
@@ -139,7 +143,7 @@ def register_scrape_tools(mcp_instance):
             min_length=1,
             max_length=1000
         )],
-        options: ScrapeOptions | None = Field(
+        scrape_options: ScrapeOptions | None = Field(
             default=None,
             description="Optional scraping configuration applied to all URLs"
         ),
@@ -166,7 +170,7 @@ def register_scrape_tools(mcp_instance):
         
         Args:
             urls: List of URLs to scrape
-            options: Optional scraping configuration applied to all URLs
+            scrape_options: Optional scraping configuration applied to all URLs
             webhook: Optional webhook URL for completion notifications
             max_concurrency: Maximum concurrent scraping operations
             ignore_invalid_urls: Whether to ignore invalid URLs and continue processing
@@ -207,14 +211,39 @@ def register_scrape_tools(mcp_instance):
             await ctx.report_progress(10, 100)
             await ctx.info(f"Validated {url_count} URLs, starting batch job")
 
-            # Start the batch scrape
-            batch_response = client.start_batch_scrape(
-                urls=urls,
-                options=options,
-                webhook=webhook,
-                max_concurrency=max_concurrency,
-                ignore_invalid_urls=ignore_invalid_urls
-            )
+            # Start the batch scrape - v2 API takes individual params
+            if scrape_options:
+                batch_response = client.start_batch_scrape(
+                    urls,
+                    formats=scrape_options.formats,
+                    headers=scrape_options.headers,
+                    include_tags=scrape_options.include_tags,
+                    exclude_tags=scrape_options.exclude_tags,
+                    only_main_content=scrape_options.only_main_content,
+                    timeout=scrape_options.timeout,
+                    wait_for=scrape_options.wait_for,
+                    mobile=scrape_options.mobile,
+                    parsers=scrape_options.parsers,
+                    actions=scrape_options.actions,
+                    location=scrape_options.location,
+                    skip_tls_verification=scrape_options.skip_tls_verification,
+                    remove_base64_images=scrape_options.remove_base64_images,
+                    fast_mode=scrape_options.fast_mode,
+                    block_ads=scrape_options.block_ads,
+                    proxy=scrape_options.proxy,
+                    max_age=scrape_options.max_age,
+                    store_in_cache=scrape_options.store_in_cache,
+                    webhook=webhook,
+                    max_concurrency=max_concurrency,
+                    ignore_invalid_urls=ignore_invalid_urls
+                )
+            else:
+                batch_response = client.start_batch_scrape(
+                    urls,
+                    webhook=webhook,
+                    max_concurrency=max_concurrency,
+                    ignore_invalid_urls=ignore_invalid_urls
+                )
 
             # Report completion
             await ctx.report_progress(100, 100)

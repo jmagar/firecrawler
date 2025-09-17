@@ -65,7 +65,14 @@ function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | null {
     if (urlObj.hostname === "raw.githubusercontent.com") {
       const pathParts = urlObj.pathname
         .split("/")
-        .filter(part => part.length > 0);
+        .filter(Boolean)
+        .map(p => {
+          try {
+            return decodeURIComponent(p);
+          } catch {
+            return p;
+          }
+        });
       if (pathParts.length >= 3) {
         const [org, repo, branch, ...fileParts] = pathParts;
         const filePath = fileParts.length ? fileParts.join("/") : undefined;
@@ -86,7 +93,14 @@ function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | null {
     } else {
       const pathParts = urlObj.pathname
         .split("/")
-        .filter(part => part.length > 0);
+        .filter(Boolean)
+        .map(p => {
+          try {
+            return decodeURIComponent(p);
+          } catch {
+            return p;
+          }
+        });
       if (pathParts.length >= 2) {
         const [org, repo, ...remainingParts] = pathParts;
 
@@ -335,9 +349,14 @@ function extractDomainMetadata(url: string): DomainMetadata {
     // Documentation hosting services
     else if (
       ["readthedocs.io", "gitbook.io", "notion.so", "gitiles.com"].some(
-        service => hostname.includes(service),
+        service => hostname === service || hostname.endsWith("." + service),
       )
     ) {
+      isDocumentationSite = true;
+      documentationType = "docs";
+    }
+    // GitHub Pages
+    else if (hostname.endsWith(".github.io")) {
       isDocumentationSite = true;
       documentationType = "docs";
     }

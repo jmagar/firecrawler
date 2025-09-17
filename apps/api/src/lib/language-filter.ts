@@ -62,22 +62,27 @@ const URL_LANGUAGE_INDICATORS = [
   "/{{lang}}_", // /es_MX/, /fr_CA/, etc.
 
   // Subdomain patterns - only match at start of subdomain
-  "^{{lang}}\\.", // es.example.com, fr.example.com
-  "://{{lang}}\\.", // https://es.example.com
+  "^(?:https?:)?//{{lang}}\\.", // http(s)://es.example.com
 
   // Query parameter patterns - exact parameter matches
   "\\?lang={{lang}}$", // ?lang=es (end of URL)
   "\\?lang={{lang}}&", // ?lang=es&other=value
+  "\\?lang={{lang}}(#|$)", // ?lang=es#section
   "&lang={{lang}}$", // &lang=es (end of URL)
   "&lang={{lang}}&", // &lang=es&other=value
+  "&lang={{lang}}(#|$)", // &lang=es#section
   "\\?language={{lang}}$", // ?language=es
   "\\?language={{lang}}&", // ?language=es&other=value
+  "\\?language={{lang}}(#|$)", // ?language=es#section
   "&language={{lang}}$", // &language=es
   "&language={{lang}}&", // &language=es&other=value
+  "&language={{lang}}(#|$)", // &language=es#section
   "\\?locale={{lang}}$", // ?locale=es
   "\\?locale={{lang}}&", // ?locale=es&other=value
+  "\\?locale={{lang}}(#|$)", // ?locale=es#section
   "&locale={{lang}}$", // &locale=es
   "&locale={{lang}}&", // &locale=es&other=value
+  "&locale={{lang}}(#|$)", // &locale=es#section
 
   // Fragment patterns
   "#{{lang}}$", // #es (end of URL)

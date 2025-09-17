@@ -14,6 +14,8 @@ import { generateCrawlerOptionsFromPrompt } from "../../scraper/scrapeURL/transf
 import { CostTracking } from "../../lib/cost-tracking";
 import { checkPermissions } from "../../lib/permissions";
 import { getLanguageExcludePatterns } from "../../lib/language-filter"; // removed .js extension
+// Memoize language patterns to avoid recomputing on every request
+const __languageExcludeCache = new Map<string, string[]>();
 
 export async function crawlController(
   req: RequestWithAuth<{}, CrawlResponse, CrawlRequest>,
@@ -117,7 +119,11 @@ export async function crawlController(
   if (defaultLanguage && defaultLanguage !== "all") {
     try {
       const languageExcludePatterns =
+        __languageExcludeCache.get(defaultLanguage) ||
         getLanguageExcludePatterns(defaultLanguage);
+      if (!__languageExcludeCache.has(defaultLanguage)) {
+        __languageExcludeCache.set(defaultLanguage, languageExcludePatterns);
+      }
       if (languageExcludePatterns.length > 0) {
         const existingExcludePaths = finalCrawlerOptions.excludePaths || [];
         // merge then deduplicate while preserving order

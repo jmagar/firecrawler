@@ -34,11 +34,16 @@ function getVectorDimension(): number {
   return dimension;
 }
 
-const VECTOR_DIMENSION = getVectorDimension();
-const ENABLE_VECTOR_STORAGE = process.env.ENABLE_VECTOR_STORAGE === "true";
-const MIN_SIMILARITY_THRESHOLD = parseFloat(
-  process.env.MIN_SIMILARITY_THRESHOLD || "0.7",
-);
+const ENABLE_VECTOR_STORAGE = process.env.ENABLE_VECTOR_STORAGE !== "false";
+const VECTOR_DIMENSION: number | undefined = ENABLE_VECTOR_STORAGE
+  ? getVectorDimension()
+  : undefined;
+const _rawMin = process.env.MIN_SIMILARITY_THRESHOLD;
+const _parsedMin = _rawMin ? parseFloat(_rawMin) : NaN;
+const MIN_SIMILARITY_THRESHOLD =
+  Number.isFinite(_parsedMin) && _parsedMin >= 0 && _parsedMin <= 1
+    ? _parsedMin
+    : 0.7;
 
 // Types for vector operations
 interface VectorMetadata {
@@ -242,6 +247,9 @@ export async function storeDocumentVector(
       `Invalid embedding dimension: expected ${VECTOR_DIMENSION}, got ${embedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly.`,
     );
   }
+  if (!embedding.every(n => Number.isFinite(n))) {
+    throw new Error("Embedding contains non-finite numbers (NaN/Infinity).");
+  }
 
   const start = Date.now();
   const metadata = generateMetadata(document);
@@ -314,6 +322,11 @@ export async function searchSimilarVectors(
   if (!queryEmbedding || queryEmbedding.length !== VECTOR_DIMENSION) {
     throw new Error(
       `Invalid query embedding dimension: expected ${VECTOR_DIMENSION}, got ${queryEmbedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly.`,
+    );
+  }
+  if (!queryEmbedding.every(n => Number.isFinite(n))) {
+    throw new Error(
+      "Query embedding contains non-finite numbers (NaN/Infinity).",
     );
   }
 

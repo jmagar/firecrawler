@@ -254,14 +254,19 @@ def register_crawl_tools(mcp: FastMCP) -> None:
             # Get Firecrawl client
             firecrawl_client = get_firecrawl_client()
 
-            # Convert to Firecrawl request format
-            crawl_request = _convert_to_crawl_request(
+            await ctx.info("Submitting crawl request to Firecrawl API")
+
+            # Start the crawl
+            # Convert sitemap strategy to ignore_sitemap boolean  
+            ignore_sitemap = sitemap == "skip" if sitemap else False
+            
+            crawl_response: CrawlResponse = firecrawl_client.start_crawl(
                 url=url,
                 prompt=prompt,
                 exclude_paths=exclude_paths,
                 include_paths=include_paths,
                 max_discovery_depth=max_discovery_depth,
-                sitemap=sitemap,
+                ignore_sitemap=ignore_sitemap,
                 ignore_query_parameters=ignore_query_parameters,
                 limit=limit,
                 crawl_entire_domain=crawl_entire_domain,
@@ -274,11 +279,6 @@ def register_crawl_tools(mcp: FastMCP) -> None:
                 zero_data_retention=zero_data_retention,
                 integration=integration
             )
-
-            await ctx.info("Submitting crawl request to Firecrawl API")
-
-            # Start the crawl
-            crawl_response: CrawlResponse = firecrawl_client.client.crawl.start_crawl(crawl_request)
 
             await ctx.info(f"Crawl started successfully with job ID: {crawl_response.id}")
 
@@ -378,9 +378,9 @@ def register_crawl_tools(mcp: FastMCP) -> None:
             await ctx.report_progress(progress=1, total=3)
 
             # Get crawl status
-            crawl_job: CrawlJob = firecrawl_client.client.crawl.get_crawl_status(
+            crawl_job: CrawlJob = firecrawl_client.get_crawl_status(
                 job_id,
-                pagination_config
+                pagination_config=pagination_config
             )
 
             await ctx.report_progress(progress=2, total=3)
@@ -397,7 +397,18 @@ def register_crawl_tools(mcp: FastMCP) -> None:
             else:
                 await ctx.info(f"Crawl in progress. {crawl_job.completed}/{crawl_job.total} pages crawled.")
 
-            return crawl_job
+            # Return only status metadata, not the full content
+            status_summary = {
+                "job_id": job_id,
+                "status": crawl_job.status,
+                "completed": crawl_job.completed,
+                "total": crawl_job.total,
+                "url": crawl_job.url if hasattr(crawl_job, 'url') else None,
+                "created_at": crawl_job.created_at if hasattr(crawl_job, 'created_at') else None,
+                "pages_scraped": len(crawl_job.data) if crawl_job.data else 0
+            }
+            
+            return status_summary
 
         except FirecrawlError as e:
             error_context = {

@@ -33,13 +33,16 @@ def get_firecrawl_client() -> FirecrawlClient:
     try:
         # Get configuration from environment variables
         api_key = os.getenv("FIRECRAWL_API_KEY")
-        if not api_key:
-            raise ToolError(
-                "FIRECRAWL_API_KEY environment variable is required but not set. "
-                "Please configure your API key."
-            )
-
         api_url = os.getenv("FIRECRAWL_API_URL", "https://api.firecrawl.dev")
+        
+        # Check if this is a self-hosted instance (no API key required)
+        is_self_hosted = not api_url.startswith("https://api.firecrawl.dev")
+        
+        if not api_key and not is_self_hosted:
+            raise ToolError(
+                "FIRECRAWL_API_KEY environment variable is required for cloud API. "
+                "Please configure your API key or use FIRECRAWL_API_URL for self-hosted instances."
+            )
         
         # Parse optional numeric configuration
         timeout = None
@@ -65,6 +68,10 @@ def get_firecrawl_client() -> FirecrawlClient:
             logger.warning(f"Invalid FIRECRAWL_BACKOFF_FACTOR value: {backoff_str}, using default")
 
         # Create and return client
+        # For self-hosted instances, use a dummy API key if none provided
+        if is_self_hosted and not api_key:
+            api_key = "dummy-key-for-self-hosted"
+        
         client = FirecrawlClient(
             api_key=api_key,
             api_url=api_url,

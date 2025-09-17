@@ -7,9 +7,20 @@ This module provides the main FastMCP server instance following the standard Fas
 import logging
 import os
 from typing import Any
+from pathlib import Path
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
+
+# Load environment variables from .env file if it exists
+try:
+    from dotenv import load_dotenv
+    env_path = Path(__file__).parent.parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+        logging.info(f"Loaded environment from {env_path}")
+except ImportError:
+    logging.warning("python-dotenv not available, skipping .env file loading")
 
 # Configure logging
 logging.basicConfig(

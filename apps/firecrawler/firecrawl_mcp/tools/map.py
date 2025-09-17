@@ -124,25 +124,21 @@ def register_map_tools(mcp_instance):
             await ctx.report_progress(10, 100)
             await ctx.info(f"Validated URL, starting mapping with sitemap strategy: {sitemap or 'include'}")
 
-            # Create mapping options
-            map_options = None
-            if any([search, sitemap, include_subdomains, limit, timeout, integration, location]):
-                map_options = MapOptions(
-                    search=search,
-                    sitemap=sitemap or "include",
-                    include_subdomains=include_subdomains,
-                    limit=limit,
-                    timeout=timeout,
-                    integration=integration,
-                    location=location
-                )
-
             # Report progress
             await ctx.report_progress(30, 100)
             await ctx.info("Starting URL discovery and mapping")
 
-            # Perform the mapping
-            map_data = client.map(url=url, options=map_options)
+            # Perform the mapping with individual parameters
+            map_data = client.map(
+                url=url,
+                search=search,
+                include_subdomains=include_subdomains,
+                limit=limit,
+                sitemap=sitemap or "include",
+                timeout=timeout,
+                integration=integration,
+                location=location
+            )
 
             # Report completion
             await ctx.report_progress(100, 100)

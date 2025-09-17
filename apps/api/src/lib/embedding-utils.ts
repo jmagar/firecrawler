@@ -6,7 +6,7 @@ import { FormatObject } from "../controllers/v2/types";
  * Centralized logic to avoid duplication across multiple files
  */
 export function shouldGenerateEmbeddings(formats?: FormatObject[]): boolean {
-  const enableVectorStorage = process.env.ENABLE_VECTOR_STORAGE === "true";
+  const enableVectorStorage = process.env.ENABLE_VECTOR_STORAGE !== "false";
 
   if (enableVectorStorage) {
     // If ENABLE_VECTOR_STORAGE=true, always generate embeddings regardless of format
@@ -21,7 +21,7 @@ export function shouldGenerateEmbeddings(formats?: FormatObject[]): boolean {
  * Checks if vector storage is enabled globally
  */
 export function isVectorStorageEnabled(): boolean {
-  return process.env.ENABLE_VECTOR_STORAGE === "true";
+  return process.env.ENABLE_VECTOR_STORAGE !== "false";
 }
 
 /**
@@ -125,7 +125,7 @@ export function validateModelConfiguration(): {
 
   // Use configured model or fall back to defaults
   const finalModelName = provider
-    ? normalizedModelName || "sentence-transformers/all-MiniLM-L6-v2"
+    ? normalizedModelName || "Qwen/Qwen3-Embedding-0.6B"
     : normalizedModelName || "text-embedding-3-small";
 
   return { modelName: finalModelName, provider };

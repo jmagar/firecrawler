@@ -5,26 +5,25 @@ const strictMessage =
   "Unrecognized key in YAML configuration -- please review the configuration documentation";
 
 // Environment variable substitution schema
-const envVarPattern = /^\$\{([A-Z_][A-Z0-9_]*)(:-([^}]*))?\}$/;
+const envVarPattern = /\$\{([A-Z_][A-Z0-9_]*)(:-([^}]*))?\}/g;
 
 const envVarString = z
   .string()
   .refine(
     val => {
       if (!val.includes("${")) return true;
-      return envVarPattern.test(val);
+      const opens = (val.match(/\$\{/g) || []).length;
+      const matches = Array.from(val.matchAll(envVarPattern)).length;
+      return opens === matches;
     },
     { message: "Invalid environment variable syntax. Use ${VAR:-default}" },
   )
   .transform(val => {
     if (!val.includes("${")) return val;
-    return val.replace(
-      /\$\{([A-Z_][A-Z0-9_]*)(:-([^}]*))?\}/g,
-      (match, varName, _, defaultValue) => {
-        const envValue = process.env[varName];
-        return envValue !== undefined ? envValue : defaultValue || "";
-      },
-    );
+    return val.replace(envVarPattern, (_match, varName, _all, defaultValue) => {
+      const envValue = process.env[varName];
+      return envValue !== undefined ? envValue : defaultValue || "";
+    });
   });
 
 const envVarNumber = z.union([
@@ -205,15 +204,17 @@ export type FeaturesConfig = z.infer<typeof featuresConfigSchema>;
 // Environment variable validation helpers
 export function validateEnvVarSyntax(value: string): boolean {
   if (!value.includes("${")) return true;
-  return envVarPattern.test(value);
+  const opens = (value.match(/\$\{/g) || []).length;
+  const matches = Array.from(value.matchAll(envVarPattern)).length;
+  return opens === matches;
 }
 
 export function resolveEnvVars(value: any): any {
   if (typeof value === "string") {
     if (!value.includes("${")) return value;
     return value.replace(
-      /\$\{([A-Z_][A-Z0-9_]*)(:-([^}]*))?\}/g,
-      (match, varName, _, defaultValue) => {
+      envVarPattern,
+      (_match, varName, _all, defaultValue) => {
         const envValue = process.env[varName];
         return envValue !== undefined ? envValue : defaultValue || "";
       },

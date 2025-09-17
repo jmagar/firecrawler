@@ -126,9 +126,11 @@ export async function performEmbeddings(
 
     const embeddingDuration = Date.now() - embeddingStart;
 
-    // Validate embedding dimensions using shared utility
+    // Validate dimensions only when persisting vectors
     try {
-      validateEmbeddingDimension(embedding, finalModelName, provider);
+      if (isVectorStorageEnabled()) {
+        validateEmbeddingDimension(embedding, finalModelName, provider);
+      }
     } catch (dimensionError) {
       _logger.error("Embedding dimension validation failed", {
         modelName: finalModelName,
