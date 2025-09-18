@@ -6,7 +6,7 @@ import { FormatObject } from "../controllers/v2/types";
  * Centralized logic to avoid duplication across multiple files
  */
 export function shouldGenerateEmbeddings(formats?: FormatObject[]): boolean {
-  const enableVectorStorage = process.env.ENABLE_VECTOR_STORAGE !== "false";
+  const enableVectorStorage = isVectorStorageEnabled();
 
   if (enableVectorStorage) {
     // If ENABLE_VECTOR_STORAGE=true, always generate embeddings regardless of format
@@ -31,7 +31,7 @@ export function getVectorDimension(): number {
   const vectorDimension = process.env.VECTOR_DIMENSION;
   if (!vectorDimension) {
     throw new Error(
-      "VECTOR_DIMENSION environment variable is required when vector storage is enabled. Set it to match your embedding model's output dimension (e.g., 1024 for Qwen3-Embedding-0.6B, 384 for all-MiniLM-L6-v2).",
+      "VECTOR_DIMENSION environment variable is required when vector storage is enabled. Set it to match your embedding model's output dimension (e.g., 1024 for Qwen/Qwen2.5-0.5B-Instruct, 384 for all-MiniLM-L6-v2).",
     );
   }
 
@@ -49,14 +49,33 @@ export function getVectorDimension(): number {
  * Common embedding model dimensions for reference
  */
 export const KNOWN_MODEL_DIMENSIONS: Record<string, number> = {
+  // OpenAI models - dimensions from OpenAI documentation
   "text-embedding-ada-002": 1536,
   "text-embedding-3-small": 1536,
   "text-embedding-3-large": 3072,
+
+  // Sentence Transformers models - dimensions verified from HuggingFace model cards
   "sentence-transformers/all-MiniLM-L6-v2": 384,
   "sentence-transformers/all-MiniLM-L12-v2": 384,
-  "BAAI/bge-base-en-v1.5": 768,
+
+  // BGE models - dimensions verified from HuggingFace model cards
+  "BAAI/bge-m3": 1024,
   "BAAI/bge-large-en-v1.5": 1024,
+  "BAAI/bge-base-en-v1.5": 768,
+  "BAAI/bge-small-en-v1.5": 384,
+
+  // Nomic models - dimensions verified from HuggingFace model cards
+  "nomic-ai/nomic-embed-text-v1": 768,
+  "nomic-ai/nomic-embed-text-v1.5": 768,
+
+  // GTE models - dimensions verified from HuggingFace model cards
+  "thenlper/gte-large": 1024,
+  "thenlper/gte-base": 768,
+  "thenlper/gte-small": 384,
+
+  // Qwen models - dimensions verified from HuggingFace model cards
   "Qwen/Qwen3-Embedding-0.6B": 1024,
+  "Qwen/Qwen2.5-0.5B-Instruct": 1024,
 };
 
 /**
@@ -108,7 +127,7 @@ export function validateModelConfiguration(): {
       );
     } else if (!openaiKey) {
       throw new Error(
-        "Either MODEL_EMBEDDING_NAME or OPENAI_API_KEY must be set.\n\nFor OpenAI (recommended for getting started):\nOPENAI_API_KEY=your_key_here\nMODEL_EMBEDDING_NAME=text-embedding-3-small\nVECTOR_DIMENSION=1536\n\nFor TEI (self-hosted, recommended):\nTEI_URL=http://your-tei-service:8080\nMODEL_EMBEDDING_NAME=Qwen/Qwen3-Embedding-0.6B\nVECTOR_DIMENSION=1024",
+        "Either MODEL_EMBEDDING_NAME or OPENAI_API_KEY must be set.\n\nFor TEI (self-hosted, recommended):\nTEI_URL=http://your-tei-service:8080\nMODEL_EMBEDDING_NAME=Qwen/Qwen2.5-0.5B-Instruct\nVECTOR_DIMENSION=1024\n\nFor OpenAI:\nOPENAI_API_KEY=your_key_here\nMODEL_EMBEDDING_NAME=text-embedding-3-small\nVECTOR_DIMENSION=1536",
       );
     }
   }
@@ -117,16 +136,41 @@ export function validateModelConfiguration(): {
   const rawName = modelName?.trim();
   const normalizedModelName =
     rawName && rawName.length > 0 ? rawName : undefined;
-  const provider = normalizedModelName
-    ?.toLowerCase()
-    .startsWith("sentence-transformers/")
-    ? ("tei" as const)
-    : undefined;
 
-  // Use configured model or fall back to defaults
-  const finalModelName = provider
-    ? normalizedModelName || "Qwen/Qwen3-Embedding-0.6B"
-    : normalizedModelName || "text-embedding-3-small";
+  // Explicitly detect OpenAI models by their naming pattern
+  const isOpenAIModel =
+    normalizedModelName?.startsWith("text-embedding-") ?? false;
+
+  let provider: "tei" | undefined = undefined;
+
+  if (normalizedModelName) {
+    if (isOpenAIModel) {
+      // OpenAI model - provider remains undefined for OpenAI
+      provider = undefined;
+    } else {
+      // Non-OpenAI model
+      if (teiUrl) {
+        provider = "tei";
+      } else {
+        throw new Error(
+          `Non-OpenAI embedding model '${normalizedModelName}' requires TEI_URL to be configured.\n\nFor TEI (self-hosted):\nTEI_URL=http://your-tei-service:8080\nMODEL_EMBEDDING_NAME=${normalizedModelName}\nVECTOR_DIMENSION=1024\n\nAlternatively, use an OpenAI model:\nOPENAI_API_KEY=your_key_here\nMODEL_EMBEDDING_NAME=text-embedding-3-small\nVECTOR_DIMENSION=1536`,
+        );
+      }
+    }
+  }
+
+  // Use configured model or fall back to appropriate defaults
+  let finalModelName: string;
+  if (normalizedModelName) {
+    finalModelName = normalizedModelName;
+  } else {
+    // Default selection based on provider availability
+    if (provider === "tei") {
+      finalModelName = "Qwen/Qwen3-Embedding-0.6B";
+    } else {
+      finalModelName = "text-embedding-3-small";
+    }
+  }
 
   return { modelName: finalModelName, provider };
 }

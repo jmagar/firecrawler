@@ -13,7 +13,6 @@ import {
   vectorSearch,
   validateVectorSearchRequest,
 } from "../../search/v2/vector-search";
-import ConfigService from "../../services/config-service";
 import * as Sentry from "@sentry/node";
 import { logger as _logger } from "../../lib/logger";
 import type { Logger } from "winston";
@@ -47,27 +46,21 @@ export async function vectorSearchController(
 
   try {
     // Validate request using Zod schema
-    let thresholdProvided = Object.prototype.hasOwnProperty.call(
-      req.body ?? {},
-      "threshold",
-    );
+    const rawBody = (req.body ?? {}) as Record<string, unknown>;
+    let thresholdProvided =
+      Object.prototype.hasOwnProperty.call(rawBody, "threshold") &&
+      rawBody["threshold"] != null;
 
     req.body = vectorSearchRequestSchema.parse(req.body);
 
-    if (!thresholdProvided) {
-      try {
-        const configService = await ConfigService;
-        const yamlConfig = await configService.getConfiguration();
-        const yamlThreshold = yamlConfig?.embeddings?.minSimilarityThreshold;
-        if (typeof yamlThreshold === "number") {
-          req.body.threshold = yamlThreshold;
-          thresholdProvided = true;
-        }
-      } catch (error) {
-        logger.debug("Failed to load YAML threshold override", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
+    // YAML defaults are now handled by yamlConfigDefaultsMiddleware
+    // Check if threshold was provided after middleware processing
+    if (!thresholdProvided && req.body.threshold !== undefined) {
+      thresholdProvided = true;
+      logger.debug("Threshold applied by YAML defaults middleware", {
+        threshold: req.body.threshold,
+        source: "yaml-config-middleware",
+      });
     }
 
     logger = logger.child({

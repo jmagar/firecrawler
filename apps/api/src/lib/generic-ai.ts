@@ -71,10 +71,6 @@ export function getModel(
   name: string,
   provider: TextProvider = defaultTextProvider,
 ) {
-  if (name === "gemini-2.5-pro") {
-    name = "gemini-2.5-pro";
-  }
-
   return process.env.MODEL_NAME
     ? providerList[provider](process.env.MODEL_NAME)
     : providerList[provider](name);

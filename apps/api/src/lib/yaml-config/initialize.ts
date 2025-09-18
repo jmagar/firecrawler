@@ -19,7 +19,10 @@ export async function initializeYamlConfig(): Promise<void> {
 
     // Load initial configuration and log details
     const config = await instance.getConfiguration();
-    const configKeys = Object.keys(config);
+    const isObject = config && typeof config === "object";
+    const configKeys = isObject
+      ? Object.keys(config as Record<string, any>)
+      : [];
     const hasConfiguration = configKeys.length > 0;
 
     logger.info("YAML configuration service initialized successfully", {
@@ -44,10 +47,7 @@ export async function initializeYamlConfig(): Promise<void> {
     // The application should continue working with environment variables
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    if (
-      errorMessage.includes("js-yaml") ||
-      errorMessage.includes("Cannot find module")
-    ) {
+    if (/\bjs-yaml\b/i.test(errorMessage)) {
       logger.info(
         "YAML configuration service dependencies not installed, skipping initialization",
       );

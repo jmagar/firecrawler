@@ -269,6 +269,7 @@ declare global {
 
 /**
  * Deep merge objects with YAML configuration taking highest priority
+ * Note: Arrays are replaced wholesale by YAML defaults (not merged element-wise)
  */
 function deepMergeWithPriority(
   requestBody: Record<string, any>,
@@ -301,12 +302,28 @@ function deepMergeWithPriority(
   return result;
 }
 
+// Fields that should never be overridden by YAML configuration
+const PROTECTED_FIELDS = ["apiKey", "token", "authorization", "idempotencyKey"];
+
+function filterProtectedFields(yamlDefaults: any): any {
+  if (!yamlDefaults || typeof yamlDefaults !== "object") return yamlDefaults;
+
+  const filtered = { ...yamlDefaults };
+  PROTECTED_FIELDS.forEach(field => {
+    delete filtered[field];
+  });
+  return filtered;
+}
+
 /**
  * Extract route type from request path for configuration loading
  */
 function extractRouteType(path: string): string | null {
-  // Normalize path by removing version prefix and extracting endpoint
-  const pathSegments = path.split("/").filter(segment => segment.length > 0);
+  // Strip query string to avoid mis-detecting the endpoint
+  const cleanPath = path.split("?")[0];
+  const pathSegments = cleanPath
+    .split("/")
+    .filter(segment => segment.length > 0);
 
   // Skip version prefix (v1, v2, etc.)
   const endpointIndex = pathSegments.findIndex(
@@ -336,74 +353,6 @@ function extractRouteType(path: string): string | null {
 }
 
 /**
- * Extract route-specific configuration from YAML config object
- */
-function extractRouteConfig(
-  config: Record<string, any>,
-  routeType: string,
-): Record<string, any> {
-  const routeDefaults: Record<string, any> = {};
-
-  // Extract route-specific configuration based on route type
-  switch (routeType) {
-    case "scrape":
-      if (config.scraping) {
-        Object.assign(routeDefaults, config.scraping);
-      }
-      // Apply language location settings to scrape config
-      if (config.language?.location) {
-        routeDefaults.location = config.language.location;
-      }
-      break;
-
-    case "crawl":
-      if (config.crawling) {
-        Object.assign(routeDefaults, config.crawling);
-      }
-      break;
-
-    case "search":
-      if (config.search) {
-        Object.assign(routeDefaults, config.search);
-      }
-      // Apply language settings to search config
-      if (config.language) {
-        if (config.language.location?.country) {
-          routeDefaults.country = config.language.location.country;
-        }
-        if (config.language.location?.languages?.[0]) {
-          routeDefaults.lang = config.language.location.languages[0];
-        }
-      }
-      if (config.embeddings?.minSimilarityThreshold !== undefined) {
-        routeDefaults.threshold = config.embeddings.minSimilarityThreshold;
-      }
-      break;
-    case "vector-search":
-      if (config.embeddings?.minSimilarityThreshold !== undefined) {
-        routeDefaults.threshold = config.embeddings.minSimilarityThreshold;
-      }
-      if (config.search?.limit !== undefined) {
-        routeDefaults.limit = config.search.limit;
-      }
-      break;
-
-    case "extract":
-      // Extract configuration could be added here in the future
-      if (config.extraction) {
-        Object.assign(routeDefaults, config.extraction);
-      }
-      break;
-
-    default:
-      // No specific configuration for this route type
-      break;
-  }
-
-  return routeDefaults;
-}
-
-/**
  * Apply YAML configuration defaults to request body
  */
 export function yamlConfigDefaultsMiddleware(
@@ -412,7 +361,7 @@ export function yamlConfigDefaultsMiddleware(
   next: NextFunction,
 ) {
   (async () => {
-    const routeIdentifier = req.originalUrl || req.baseUrl || req.path;
+    const routeIdentifier = req.path;
     const routeType = extractRouteType(routeIdentifier);
 
     // Initialize metadata for debugging
@@ -422,8 +371,8 @@ export function yamlConfigDefaultsMiddleware(
     };
 
     // Skip if we can't determine route type
-    if (!routeType || routeType === "vector-search") {
-      logger.info(`YAML defaults skipped for route (${routeIdentifier})`, {
+    if (!routeType) {
+      logger.debug(`YAML defaults skipped for route (${routeIdentifier})`, {
         module: "yaml-config-defaults-middleware",
         method: "yamlConfigDefaultsMiddleware",
         path: req.path,
@@ -435,31 +384,33 @@ export function yamlConfigDefaultsMiddleware(
 
     try {
       const configService = await ConfigService;
-      const rawConfig = await configService.getConfiguration();
 
-      // Skip if no configuration available
-      if (!rawConfig || Object.keys(rawConfig).length === 0) {
-        return next();
-      }
+      // Map route types to ConfigService route names
+      const serviceRoute =
+        routeType === "scrape"
+          ? "scraping"
+          : routeType === "crawl"
+            ? "crawling"
+            : routeType === "vector-search"
+              ? "embeddings"
+              : routeType; // "search" | "extract"
 
-      // Basic validation - ensure config is an object
-      if (typeof rawConfig !== "object" || rawConfig === null) {
-        logger.warn(
-          "Invalid YAML configuration format, skipping defaults application",
+      const routeDefaults = await configService.getConfigForRoute(
+        serviceRoute as any,
+      );
+      if (!routeDefaults || Object.keys(routeDefaults).length === 0) {
+        logger.info(
+          `No configuration found for route ${routeType} (${routeIdentifier})`,
           {
             module: "yaml-config-defaults-middleware",
             method: "yamlConfigDefaultsMiddleware",
             routeType,
+            serviceRoute,
             teamId: req.auth.team_id,
-            configType: typeof rawConfig,
           },
         );
-        req.yamlConfigMetadata.error = "Configuration is not a valid object";
         return next();
       }
-
-      // Extract route-specific defaults
-      const routeDefaults = extractRouteConfig(rawConfig, routeType);
 
       logger.info(
         `Evaluated YAML defaults for route ${routeType} (${routeIdentifier})`,
@@ -479,13 +430,15 @@ export function yamlConfigDefaultsMiddleware(
           req.body = {};
         }
 
+        // Filter out protected fields before merging
+        const filteredDefaults = filterProtectedFields(routeDefaults);
         // Deep merge with YAML configuration taking priority
-        req.body = deepMergeWithPriority(req.body, routeDefaults);
+        req.body = deepMergeWithPriority(req.body, filteredDefaults);
 
         req.yamlConfigMetadata.configApplied = true;
         req.yamlConfigMetadata.configSource = "yaml";
 
-        logger.info(`Applied YAML configuration defaults for ${routeType}`, {
+        logger.debug(`Applied YAML configuration defaults for ${routeType}`, {
           module: "yaml-config-defaults-middleware",
           method: "yamlConfigDefaultsMiddleware",
           routeType,

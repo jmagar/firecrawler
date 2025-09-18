@@ -1497,10 +1497,12 @@ export const vectorSearchRequestSchema = z
         domain: z.string().optional().describe("Filter by specific domain"),
         repository: z
           .string()
+          .min(1, "Repository cannot be empty")
           .optional()
           .describe("Filter by GitHub repository name"),
         repositoryOrg: z
           .string()
+          .min(1, "Organization cannot be empty")
           .optional()
           .describe("Filter by GitHub organization"),
         repositoryFullName: z
@@ -1543,6 +1545,11 @@ export const vectorSearchRequestSchema = z
             return false;
           }
 
+          // Require both fields together - repositoryOrg without repository is not allowed
+          if (data.repositoryOrg && !data.repository) {
+            return false;
+          }
+
           return true;
         },
         {
@@ -1556,11 +1563,21 @@ export const vectorSearchRequestSchema = z
           const [org, repo] = data.repositoryFullName.split("/");
           return {
             ...data,
-            repositoryOrg: org,
-            repository: repo,
+            repositoryOrg: org.toLowerCase(),
+            repository: repo.toLowerCase(),
             repositoryFullName: undefined, // Remove after normalization
           };
         }
+
+        // Normalize repository fields to lowercase if they exist
+        if (data.repository && data.repositoryOrg) {
+          return {
+            ...data,
+            repository: data.repository.toLowerCase(),
+            repositoryOrg: data.repositoryOrg.toLowerCase(),
+          };
+        }
+
         return data;
       })
       .optional()

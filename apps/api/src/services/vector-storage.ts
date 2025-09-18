@@ -1,49 +1,42 @@
 import { Pool } from "pg";
 import { logger } from "../lib/logger";
 import { Document } from "../controllers/v2/types";
+import {
+  isVectorStorageEnabled,
+  getVectorDimension,
+} from "../lib/embedding-utils";
+import { DEFAULT_MIN_SIMILARITY_THRESHOLD } from "../lib/similarity";
 
-// Use existing NuQ database connection
-const nuqPool = new Pool({
-  connectionString: process.env.NUQ_DATABASE_URL,
-  application_name: "vector_storage",
-});
+// Lazy-initialized pool for vector storage
+let nuqPool: Pool | undefined;
 
-nuqPool.on("error", err =>
-  logger.error("Error in Vector Storage idle client", {
-    err,
-    module: "vector_storage",
-  }),
-);
+function getPool(): Pool {
+  if (!isVectorStorageEnabled()) {
+    throw new Error("Vector storage is disabled");
+  }
 
-// Vector storage configuration
-function getVectorDimension(): number {
-  const vectorDimension = process.env.VECTOR_DIMENSION;
-  if (!vectorDimension) {
-    throw new Error(
-      "VECTOR_DIMENSION environment variable is required. Set it to match your embedding model's output dimension (e.g., 1024 for Qwen3-Embedding-0.6B, 384 for sentence-transformers/all-MiniLM-L6-v2).",
+  if (!nuqPool) {
+    nuqPool = new Pool({
+      connectionString: process.env.NUQ_DATABASE_URL,
+      application_name: "vector_storage",
+    });
+
+    nuqPool.on("error", err =>
+      logger.error("Error in Vector Storage idle client", {
+        err,
+        module: "vector_storage",
+      }),
     );
   }
 
-  const dimension = parseInt(vectorDimension, 10);
-  if (isNaN(dimension) || dimension <= 0) {
-    throw new Error(
-      `VECTOR_DIMENSION must be a positive integer, got: ${vectorDimension}`,
-    );
-  }
-
-  return dimension;
+  return nuqPool;
 }
 
-const ENABLE_VECTOR_STORAGE = process.env.ENABLE_VECTOR_STORAGE !== "false";
-const VECTOR_DIMENSION: number | undefined = ENABLE_VECTOR_STORAGE
+// Vector storage configuration (dimension from shared utility)
+
+const VECTOR_DIMENSION: number | undefined = isVectorStorageEnabled()
   ? getVectorDimension()
   : undefined;
-const _rawMin = process.env.MIN_SIMILARITY_THRESHOLD;
-const _parsedMin = _rawMin ? parseFloat(_rawMin) : NaN;
-const MIN_SIMILARITY_THRESHOLD =
-  Number.isFinite(_parsedMin) && _parsedMin >= 0 && _parsedMin <= 1
-    ? _parsedMin
-    : 0.7;
 
 // Types for vector operations
 interface VectorMetadata {
@@ -197,7 +190,11 @@ function extractDomain(url: string): string {
  * Generates metadata from document
  */
 function generateMetadata(document: Document): VectorMetadata {
-  const url = document.url || document.metadata?.url || "";
+  const url =
+    document.url ||
+    document.metadata?.sourceURL ||
+    document.metadata?.url ||
+    "";
   const domain = extractDomain(url);
   const githubInfo = extractGitHubInfo(url);
   const contentType = detectContentType(
@@ -214,8 +211,8 @@ function generateMetadata(document: Document): VectorMetadata {
     title: document.title || document.metadata?.title,
     url,
     domain,
-    repository_name: githubInfo.repo,
-    repository_org: githubInfo.org,
+    repository_name: githubInfo.repo?.toLowerCase(),
+    repository_org: githubInfo.org?.toLowerCase(),
     file_path: githubInfo.filePath,
     content_type: contentType,
     language: document.metadata?.language,
@@ -234,7 +231,7 @@ export async function storeDocumentVector(
   document: Document,
   _logger = logger,
 ): Promise<boolean> {
-  if (!ENABLE_VECTOR_STORAGE) {
+  if (!isVectorStorageEnabled()) {
     _logger.debug("Vector storage disabled, skipping", {
       module: "vector_storage",
       jobId,
@@ -244,7 +241,7 @@ export async function storeDocumentVector(
 
   if (!embedding || embedding.length !== VECTOR_DIMENSION) {
     throw new Error(
-      `Invalid embedding dimension: expected ${VECTOR_DIMENSION}, got ${embedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly.`,
+      `Invalid embedding dimension: expected ${VECTOR_DIMENSION}, got ${embedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly (e.g., 1024 for Qwen/Qwen2.5-0.5B-Instruct).`,
     );
   }
   if (!embedding.every(n => Number.isFinite(n))) {
@@ -272,7 +269,7 @@ export async function storeDocumentVector(
         created_at = EXCLUDED.created_at
     `;
 
-    await nuqPool.query(query, [
+    await getPool().query(query, [
       jobId,
       `[${embedding.join(",")}]`, // Convert array to vector format
       JSON.stringify(metadata),
@@ -312,7 +309,7 @@ export async function searchSimilarVectors(
   options: VectorSearchOptions = {},
   _logger = logger,
 ): Promise<VectorSearchResult[]> {
-  if (!ENABLE_VECTOR_STORAGE) {
+  if (!isVectorStorageEnabled()) {
     _logger.debug("Vector storage disabled, returning empty results", {
       module: "vector_storage",
     });
@@ -321,7 +318,7 @@ export async function searchSimilarVectors(
 
   if (!queryEmbedding || queryEmbedding.length !== VECTOR_DIMENSION) {
     throw new Error(
-      `Invalid query embedding dimension: expected ${VECTOR_DIMENSION}, got ${queryEmbedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly.`,
+      `Invalid query embedding dimension: expected ${VECTOR_DIMENSION}, got ${queryEmbedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly (e.g., 1024 for Qwen/Qwen2.5-0.5B-Instruct).`,
     );
   }
   if (!queryEmbedding.every(n => Number.isFinite(n))) {
@@ -333,7 +330,7 @@ export async function searchSimilarVectors(
   const start = Date.now();
   const {
     limit = 10,
-    minSimilarity = MIN_SIMILARITY_THRESHOLD,
+    minSimilarity = DEFAULT_MIN_SIMILARITY_THRESHOLD,
     domain,
     repositoryName,
     repositoryOrg,
@@ -407,7 +404,7 @@ export async function searchSimilarVectors(
       LIMIT $3
     `;
 
-    const result = await nuqPool.query(query, params);
+    const result = await getPool().query(query, params);
 
     const searchResults: VectorSearchResult[] = result.rows.map(row => ({
       jobId: row.job_id,
@@ -443,6 +440,15 @@ export async function searchSimilarVectors(
 async function getVectorStorageStats(
   _logger = logger,
 ): Promise<VectorStorageStats> {
+  if (!isVectorStorageEnabled()) {
+    return {
+      totalVectors: 0,
+      avgSimilarity: 0,
+      uniqueDomains: 0,
+      uniqueRepositories: 0,
+    };
+  }
+
   const start = Date.now();
 
   try {
@@ -455,7 +461,7 @@ async function getVectorStorageStats(
       WHERE metadata->>'repository_name' IS NOT NULL
     `;
 
-    const result = await nuqPool.query(query);
+    const result = await getPool().query(query);
     const row = result.rows[0];
 
     const stats: VectorStorageStats = {
@@ -491,11 +497,19 @@ async function deleteDocumentVector(
   jobId: string,
   _logger = logger,
 ): Promise<boolean> {
+  if (!isVectorStorageEnabled()) {
+    _logger.debug("Vector storage disabled, skipping deletion", {
+      module: "vector_storage",
+      jobId,
+    });
+    return true;
+  }
+
   const start = Date.now();
 
   try {
     const query = `DELETE FROM nuq.document_vectors WHERE job_id = $1`;
-    const result = await nuqPool.query(query, [jobId]);
+    const result = await getPool().query(query, [jobId]);
 
     const deleted = (result.rowCount || 0) > 0;
 
@@ -524,10 +538,14 @@ async function deleteDocumentVector(
  * Health check for vector storage service
  */
 async function vectorStorageHealthCheck(): Promise<boolean> {
+  if (!isVectorStorageEnabled()) {
+    return true; // Consider it healthy when disabled
+  }
+
   const start = Date.now();
   try {
     // Check if table exists and is accessible
-    await nuqPool.query("SELECT 1 FROM nuq.document_vectors LIMIT 1");
+    await getPool().query("SELECT 1 FROM nuq.document_vectors LIMIT 1");
 
     logger.info("Vector storage health check passed", {
       module: "vector_storage/metrics",
@@ -554,6 +572,13 @@ async function cleanupOldVectors(
   retentionDays: number = 30,
   _logger = logger,
 ): Promise<number> {
+  if (!isVectorStorageEnabled()) {
+    _logger.debug("Vector storage disabled, skipping cleanup", {
+      module: "vector_storage",
+    });
+    return 0;
+  }
+
   const start = Date.now();
 
   try {
@@ -562,7 +587,7 @@ async function cleanupOldVectors(
       WHERE (metadata->>'created_at')::timestamp < now() - interval '${retentionDays} days'
     `;
 
-    const result = await nuqPool.query(query);
+    const result = await getPool().query(query);
     const deletedCount = result.rowCount || 0;
 
     _logger.info("Vector cleanup completed", {
@@ -592,5 +617,7 @@ async function vectorStorageShutdown(): Promise<void> {
   logger.info("Shutting down vector storage service", {
     module: "vector_storage",
   });
-  await nuqPool.end();
+  if (nuqPool) {
+    await nuqPool.end();
+  }
 }

@@ -57,3 +57,37 @@ export const INTERNAL_TO_API_CONTENT_TYPE: Record<
   other: "other",
   general: "other", // map general to other for API
 };
+
+import { logger } from "../lib/logger";
+
+/**
+ * Converts API content type to internal content type with runtime safety.
+ * @param apiType - The API content type string to convert
+ * @returns The corresponding internal ContentType
+ */
+export function apiToInternalContentType(apiType: string): ContentType {
+  const internalType = API_TO_INTERNAL_CONTENT_TYPE[apiType as ApiContentType];
+  if (!internalType) {
+    logger.warn(`Unknown API content type: ${apiType}, defaulting to 'other'`);
+    return "other";
+  }
+  return internalType;
+}
+
+/**
+ * Converts internal content type to API content type with runtime safety.
+ * @param internalType - The internal ContentType to convert
+ * @returns The corresponding API content type
+ */
+export function internalToApiContentType(
+  internalType: ContentType,
+): ApiContentType {
+  const apiType = INTERNAL_TO_API_CONTENT_TYPE[internalType];
+  if (!apiType) {
+    logger.warn(
+      `Unmapped internal content type: ${internalType}, defaulting to 'other'`,
+    );
+    return "other";
+  }
+  return apiType;
+}

@@ -4,6 +4,7 @@ import type { Logger } from "winston";
 import { getEmbeddingModel } from "../../lib/generic-ai";
 import { calculateEmbeddingCost } from "../../lib/extract/usage/llm-cost";
 import { CostTracking } from "../../lib/cost-tracking";
+import { DEFAULT_MIN_SIMILARITY_THRESHOLD } from "../../lib/similarity";
 import {
   API_TO_INTERNAL_CONTENT_TYPE,
   INTERNAL_TO_API_CONTENT_TYPE,
@@ -37,17 +38,6 @@ interface VectorSearchTiming {
   vectorSearchMs: number;
   totalMs: number;
 }
-
-const DEFAULT_MIN_SIMILARITY_THRESHOLD = (() => {
-  const raw = process.env.MIN_SIMILARITY_THRESHOLD;
-  const parsed = raw ? parseFloat(raw) : NaN;
-
-  if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 1) {
-    return parsed;
-  }
-
-  return 0.7;
-})();
 
 function clampThreshold(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -376,7 +366,9 @@ export async function vectorSearch(
     const creditsUsed = 1 + apiResults.length;
 
     const warning = fallbackUsed
-      ? `Vector search returned no results at similarity ≥ ${thresholdHistory[0]?.toFixed(2)}, so retried with a lower threshold (${usedThreshold.toFixed(2)}).`
+      ? `Vector search returned no results at similarity ≥ ${
+          thresholdHistory.length > 0 ? thresholdHistory[0].toFixed(2) : "N/A"
+        }, so retried with a lower threshold (${usedThreshold.toFixed(2)}).`
       : undefined;
 
     return {

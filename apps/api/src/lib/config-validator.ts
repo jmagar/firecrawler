@@ -1,11 +1,18 @@
 import { z } from "zod";
 import { countries } from "./validate-country";
 
+const SPECIAL_COUNTRIES = ["us-generic", "us-whitelist"];
+const COUNTRY_CODES = new Set([
+  ...Object.keys(countries).map(code => code.toUpperCase()),
+  ...SPECIAL_COUNTRIES.map(code => code.toLowerCase()),
+]);
+
 const strictMessage =
   "Unrecognized key in YAML configuration -- please review the configuration documentation";
 
 // Environment variable substitution schema
 const envVarPattern = /\$\{([A-Z_][A-Z0-9_]*)(:-([^}]*))?\}/g;
+const envVarPatternSingle = /^\$\{([A-Z_][A-Z0-9_]*)(:-([^}]*))?\}$/;
 
 const envVarString = z
   .string()
@@ -51,14 +58,19 @@ const locationConfigSchema = z
   .object({
     country: z
       .string()
-      .refine(country => Object.keys(countries).includes(country), {
-        message:
-          "Invalid country code. Must be a valid ISO 3166-1 alpha-2 code.",
-      })
+      .refine(
+        country =>
+          COUNTRY_CODES.has(country.toUpperCase()) ||
+          COUNTRY_CODES.has(country.toLowerCase()),
+        {
+          message:
+            "Invalid country code. Must be a valid ISO 3166-1 alpha-2 code or special country.",
+        },
+      )
       .optional(),
     languages: envVarArray.optional(),
   })
-  .strict(strictMessage)
+  .strict()
   .optional();
 
 // Scraping configuration schema (based on baseScrapeOptions)
@@ -101,7 +113,7 @@ const scrapingConfigSchema = z
     maxAge: envVarNumber.optional(),
     storeInCache: envVarBoolean.optional(),
   })
-  .strict(strictMessage)
+  .strict()
   .optional();
 
 // Language configuration schema
@@ -111,7 +123,7 @@ const languageConfigSchema = z
     excludeLangs: envVarArray.optional(),
     location: locationConfigSchema,
   })
-  .strict(strictMessage)
+  .strict()
   .optional();
 
 // Crawling configuration schema (based on crawlerOptions)
@@ -126,8 +138,8 @@ const crawlingConfigSchema = z
     ignoreRobotsTxt: envVarBoolean.optional(),
     sitemap: z
       .union([
-        z.enum(["skip", "include"]),
-        envVarString.pipe(z.enum(["skip", "include"])),
+        z.enum(["skip", "include", "only"]),
+        envVarString.pipe(z.enum(["skip", "include", "only"])),
       ])
       .optional(),
     deduplicateSimilarURLs: envVarBoolean.optional(),
@@ -135,7 +147,7 @@ const crawlingConfigSchema = z
     regexOnFullURL: envVarBoolean.optional(),
     delay: envVarNumber.optional(),
   })
-  .strict(strictMessage)
+  .strict()
   .optional();
 
 // Search configuration schema
@@ -144,16 +156,22 @@ const searchConfigSchema = z
     limit: envVarNumber.optional(),
     lang: envVarString.optional(),
     country: envVarString
-      .refine(country => !country || Object.keys(countries).includes(country), {
-        message:
-          "Invalid country code. Must be a valid ISO 3166-1 alpha-2 code.",
-      })
+      .refine(
+        country =>
+          !country ||
+          COUNTRY_CODES.has(country.toUpperCase()) ||
+          COUNTRY_CODES.has(country.toLowerCase()),
+        {
+          message:
+            "Invalid country code. Must be a valid ISO 3166-1 alpha-2 code or special country.",
+        },
+      )
       .optional(),
     sources: envVarArray.optional(),
     timeout: envVarNumber.optional(),
     ignoreInvalidURLs: envVarBoolean.optional(),
   })
-  .strict(strictMessage)
+  .strict()
   .optional();
 
 // Embeddings configuration schema
@@ -162,11 +180,12 @@ const embeddingsConfigSchema = z
     enabled: envVarBoolean.optional(),
     model: envVarString.optional(),
     provider: envVarString.optional(),
+    teiUrl: envVarString.optional(),
     dimension: envVarNumber.optional(),
     maxContentLength: envVarNumber.optional(),
     minSimilarityThreshold: envVarNumber.optional(),
   })
-  .strict(strictMessage)
+  .strict()
   .optional();
 
 // Features configuration schema
@@ -177,7 +196,7 @@ const featuresConfigSchema = z
     ipWhitelist: envVarBoolean.optional(),
     zeroDataRetention: envVarBoolean.optional(),
   })
-  .strict(strictMessage)
+  .strict()
   .optional();
 
 // Main YAML configuration schema
@@ -190,7 +209,7 @@ export const yamlConfigSchema = z
     embeddings: embeddingsConfigSchema,
     features: featuresConfigSchema,
   })
-  .strict(strictMessage);
+  .strict();
 
 // Configuration type definitions
 export type YamlConfig = z.infer<typeof yamlConfigSchema>;
@@ -203,10 +222,12 @@ export type FeaturesConfig = z.infer<typeof featuresConfigSchema>;
 
 // Environment variable validation helpers
 export function validateEnvVarSyntax(value: string): boolean {
+  // If it contains } but not ${, it's malformed
+  if (value.includes("}") && !value.includes("${")) return false;
+  // If it doesn't contain ${, it's a regular string (valid)
   if (!value.includes("${")) return true;
-  const opens = (value.match(/\$\{/g) || []).length;
-  const matches = Array.from(value.matchAll(envVarPattern)).length;
-  return opens === matches;
+  // If it contains ${, it must be exactly one valid env var pattern
+  return envVarPatternSingle.test(value);
 }
 
 export function resolveEnvVars(value: any): any {
@@ -298,11 +319,19 @@ export function extractSearchConfig(config: YamlConfig): any {
   }
 
   if (config.language?.location) {
-    if (config.language.location.country) {
+    if (
+      searchConfig.country === undefined &&
+      config.language.location.country
+    ) {
       searchConfig.country = config.language.location.country;
     }
-    if (config.language.location.languages) {
-      searchConfig.lang = config.language.location.languages[0];
+    const langs = config.language.location.languages;
+    if (
+      searchConfig.lang === undefined &&
+      Array.isArray(langs) &&
+      langs.length > 0
+    ) {
+      searchConfig.lang = langs[0];
     }
   }
 

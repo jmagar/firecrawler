@@ -16,6 +16,7 @@ import {
 import { MockState } from "../../lib/mock";
 import { fireEngineStagingURL, fireEngineURL } from "./scrape";
 import { getDocFromGCS } from "../../../../lib/gcs-jobs";
+import { parseDocIdFromDocUrl } from "../../../../lib/utils/doc-id-parser";
 import { Meta } from "../..";
 
 const successSchema = z.object({
@@ -150,19 +151,13 @@ export async function fireEngineCheckStatus(
 
   // Fire-engine now saves the content to GCS
   if (!status.content && status.docUrl) {
-    const docId = (() => {
-      try {
-        const { pathname } = new URL(status.docUrl);
-        const parts = pathname.split("/").filter(Boolean);
-        return parts.length ? parts[parts.length - 1] : "";
-      } catch {
-        return status.docUrl.split("/").pop() ?? "";
+    const docId = parseDocIdFromDocUrl(status.docUrl);
+    if (docId !== "") {
+      const doc = await getDocFromGCS(docId);
+      if (doc) {
+        status = { ...status, ...doc };
+        delete status.docUrl;
       }
-    })();
-    const doc = await getDocFromGCS(docId);
-    if (doc) {
-      status = { ...status, ...doc };
-      delete status.docUrl;
     }
   }
 

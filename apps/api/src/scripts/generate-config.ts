@@ -3,7 +3,6 @@ import "dotenv/config";
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
-import { z } from "zod";
 import { logger } from "../lib/logger";
 
 interface CliArgs {
@@ -36,9 +35,9 @@ const ENV_MAPPINGS: EnvironmentMapping = {
   // Scraping configuration
   BLOCK_MEDIA: {
     section: "scraping",
-    field: "blockAds",
+    field: "blockMedia",
     type: "boolean",
-    comment: "Block advertisements and media content",
+    comment: "Block media (audio/video) content",
     envVar: true,
   },
   PROXY_SERVER: {
@@ -99,6 +98,13 @@ const ENV_MAPPINGS: EnvironmentMapping = {
   },
   TEI_URL: {
     section: "embeddings",
+    field: "teiUrl",
+    type: "string",
+    comment: "TEI service base URL",
+    envVar: true,
+  },
+  EMBEDDINGS_PROVIDER: {
+    section: "embeddings",
     field: "provider",
     type: "string",
     comment: "Embedding provider (openai or tei)",
@@ -139,9 +145,9 @@ const DEFAULT_VALUES = {
   },
   embeddings: {
     enabled: false,
-    model: "text-embedding-ada-002",
-    provider: "openai",
-    dimension: 1536,
+    model: "Qwen/Qwen2.5-0.5B-Instruct",
+    provider: "tei",
+    dimension: 1024,
     maxContentLength: 8000,
     minSimilarityThreshold: 0.7,
   },
@@ -211,7 +217,7 @@ ENVIRONMENT VARIABLES:
   The following environment variables will be mapped to YAML configuration:
   
   Scraping:
-    BLOCK_MEDIA              -> scraping.blockAds
+    BLOCK_MEDIA              -> scraping.blockMedia
     PROXY_SERVER             -> scraping.proxy
     
   Features:
@@ -226,7 +232,8 @@ ENVIRONMENT VARIABLES:
     VECTOR_DIMENSION         -> embeddings.dimension
     MAX_EMBEDDING_CONTENT_LENGTH -> embeddings.maxContentLength
     MIN_SIMILARITY_THRESHOLD -> embeddings.minSimilarityThreshold
-    TEI_URL                  -> embeddings.provider
+    EMBEDDINGS_PROVIDER      -> embeddings.provider
+    TEI_URL                  -> embeddings.teiUrl
 
 MIGRATION:
   1. Run: npm run generate-config -- --output defaults.yaml
@@ -246,13 +253,14 @@ function convertValue(
   switch (type) {
     case "boolean":
       return value.toLowerCase() === "true";
-    case "number":
+    case "number": {
       const num = Number(value);
       if (isNaN(num)) {
         throw new Error(`Invalid number value: ${value}`);
       }
       return num;
-    case "array":
+    }
+    case "array": {
       if (value === "all" || value === "") {
         return [];
       }
@@ -260,6 +268,7 @@ function convertValue(
         .split(",")
         .map(s => s.trim())
         .filter(s => s.length > 0);
+    }
     case "string":
     default:
       return value;
@@ -327,11 +336,7 @@ function generateYamlComments(): string {
 # values for API requests. YAML configuration takes precedence over request parameters.
 #
 # Configuration precedence (highest to lowest):
-# 1. This YAML configuration file (highest priority)
-# 2. Environment variable overrides (FIRECRAWL_CONFIG_OVERRIDE)  
-# 3. Environment variables (existing behavior preserved)
-# 4. Request parameters (API calls)
-# 5. Built-in schema defaults
+# FIRECRAWL_CONFIG_OVERRIDE > YAML (with env substitutions) > request params > defaults
 #
 # Environment variable substitution:
 # - Use \${VAR_NAME} to substitute environment variables
@@ -345,6 +350,10 @@ function generateYamlComments(): string {
 #
 
 `;
+}
+
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function addSectionComments(yamlStr: string): string {
@@ -362,7 +371,7 @@ function addSectionComments(yamlStr: string): string {
 
   for (const [sectionKey, comment] of Object.entries(sectionComments)) {
     result = result.replace(
-      new RegExp(`^${sectionKey}`, "m"),
+      new RegExp(`^${escapeRegExp(sectionKey)}`, "m"),
       `${comment}\n${sectionKey}`,
     );
   }
@@ -394,7 +403,8 @@ function addFieldComments(yamlStr: string): string {
     "removeBase64Images:": "  # Remove base64 encoded images from output",
     "skipTlsVerification:": "  # Skip TLS certificate verification",
     "storeInCache:": "  # Cache scraped content for faster repeated requests",
-    "blockAds:": "  # Block advertisements and tracking scripts",
+    "blockMedia:": "  # Block media (audio/video) content",
+    "teiUrl:": "  # TEI service base URL",
     "proxy:": "  # Proxy configuration (auto, none, or proxy URL)",
     "limit:": "  # Maximum number of pages to crawl",
     "maxDepth:": "  # Maximum crawl depth from starting URL",
@@ -429,7 +439,7 @@ function addFieldComments(yamlStr: string): string {
   let result = yamlStr;
 
   for (const [fieldKey, comment] of Object.entries(fieldComments)) {
-    const regex = new RegExp(`^(\\s*)${fieldKey.replace(":", "\\:")}`, "gm");
+    const regex = new RegExp(`^(\\s*)${escapeRegExp(fieldKey)}`, "gm");
     result = result.replace(regex, `$1${comment}\n$1${fieldKey}`);
   }
 

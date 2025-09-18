@@ -13,6 +13,7 @@ interface ModelPricing {
 }
 const tokenPerCharacter = 0.5;
 const baseTokenCost = 300;
+const MAX_PAYLOAD_BYTES = 1_000_000; // ~1MB limit to prevent JSON stringify blowups
 
 // Language-specific token-to-character ratios
 const languageTokenRatios = {
@@ -37,6 +38,9 @@ const languageTokenRatios = {
 export type LanguageCode = keyof typeof languageTokenRatios;
 export type TokenizerFunction = (text: string) => number;
 
+// Language detection sample size - number of characters to analyze
+const LANGUAGE_DETECT_SAMPLE_CHARS = 256;
+
 /**
  * Simple language detection based on character scripts
  * Returns ISO 639-1 language code or undefined if unknown
@@ -44,8 +48,8 @@ export type TokenizerFunction = (text: string) => number;
 function detectLanguageFromText(text: string): string | undefined {
   if (!text || text.length < 10) return undefined;
 
-  // Sample first 100 characters for detection
-  const sample = text.slice(0, 100);
+  // Sample first LANGUAGE_DETECT_SAMPLE_CHARS characters for detection
+  const sample = text.slice(0, LANGUAGE_DETECT_SAMPLE_CHARS);
 
   // Check for CJK characters
   if (/[\u4e00-\u9fff]/.test(sample)) return "zh"; // Chinese
@@ -114,7 +118,40 @@ export function calculateFinalResultCost(
     language?: string;
   } = {},
 ): number {
-  const jsonString = JSON.stringify(data);
+  let jsonString: string;
+
+  try {
+    // Attempt to stringify the data
+    const rawJsonString = JSON.stringify(data);
+
+    // Check if the JSON string exceeds our size limit
+    if (rawJsonString.length > MAX_PAYLOAD_BYTES) {
+      // Truncate to MAX_PAYLOAD_BYTES and append truncation marker
+      jsonString = rawJsonString.slice(0, MAX_PAYLOAD_BYTES) + "...[truncated]";
+      logger.warn(
+        "Payload size exceeded limit, truncated for token estimation",
+        {
+          originalSize: rawJsonString.length,
+          truncatedSize: jsonString.length,
+          limit: MAX_PAYLOAD_BYTES,
+          source: "llm-cost",
+        },
+      );
+    } else {
+      jsonString = rawJsonString;
+    }
+  } catch (error) {
+    // Fall back to a safe string if JSON.stringify fails
+    jsonString = "[payload too large]";
+    logger.error(
+      "Failed to stringify payload, using fallback for token estimation",
+      {
+        error: error instanceof Error ? error.message : String(error),
+        source: "llm-cost",
+      },
+    );
+  }
+
   const estimatedTokens = estimateTokenCount(jsonString, options);
   return Math.floor(estimatedTokens + baseTokenCost);
 }

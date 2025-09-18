@@ -325,7 +325,8 @@ async function getMapResults({
       );
 
       if (excluded.length > 0) {
-        mapResults = mapResults.filter(x => included.includes(x.url));
+        const includeSet = new Set(included);
+        mapResults = mapResults.filter(x => includeSet.has(x.url));
 
         logger.info("Applied automatic language filtering to map results", {
           allowedLanguage: defaultLanguage,

@@ -11,7 +11,7 @@ import { RequestWithAuth } from "../../controllers/v1/types";
 
 // Create a mock configuration service
 const mockGetConfiguration = jest.fn() as jest.MockedFunction<
-  (teamId: string) => Promise<any>
+  () => Promise<any>
 >;
 
 // Mock ConfigService before any imports

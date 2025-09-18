@@ -27,8 +27,8 @@ repos:
       - id: mypy
         name: mypy-type-check
         description: "Run MyPy static type checking"
-        files: ^firecrawl_mcp/
-        exclude: ^firecrawl_mcp/tests/
+        files: ^apps/firecrawler/firecrawl_mcp/
+        exclude: ^apps/firecrawler/firecrawl_mcp/tests/
         additional_dependencies:
           - fastmcp>=2.12.2
           - pydantic>=2.0
@@ -92,8 +92,8 @@ repos:
         name: bandit-security-check
         description: "Run Bandit security linter"
         args: ["-c", "pyproject.toml", "-ll", "-q"]
-        files: ^firecrawl_mcp/
-        exclude: ^firecrawl_mcp/tests/
+        files: ^apps/firecrawler/firecrawl_mcp/
+        exclude: ^apps/firecrawler/firecrawl_mcp/tests/
 
 # Global configuration
 default_language_version:
@@ -120,7 +120,7 @@ exclude: |
   )$
 
 # Fail fast - stop running hooks after the first failure
-fail_fast: true
+fail_fast: false
 
 # Minimum pre-commit version required
 minimum_pre_commit_version: 3.5.0

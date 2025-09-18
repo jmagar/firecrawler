@@ -26,6 +26,7 @@ class ConfigService {
 
   private configCache: ConfigCache | null = null;
   private fileWatcher: FileWatcher | null = null;
+  private watcher: fs.FSWatcher | null = null;
   private configPath: string;
   private readonly cacheTTL: number = 30000; // 30 seconds
   private readonly watchDebounceDelay: number = 1000; // 1 second
@@ -115,12 +116,80 @@ class ConfigService {
       }
 
       if (!this.fileWatcher.isWatching) {
-        fs.watch(this.configPath, eventType => {
-          if (eventType === "change") {
-            this.handleFileChange();
-          }
+        // Close existing watcher before creating new one
+        this.watcher?.close();
+
+        // Create new fs.watch watcher with proper options
+        this.watcher = fs.watch(
+          this.configPath,
+          {
+            persistent: true,
+          },
+          (eventType, filename) => {
+            // Handle both 'change' and 'rename' events
+            if (eventType === "change") {
+              this.handleFileChange();
+            } else if (eventType === "rename") {
+              // Rename indicates atomic replace - file might temporarily disappear
+              logger.info(
+                "Configuration file was renamed/replaced, handling atomic change",
+                {
+                  module: "config-service",
+                  method: "setupFileWatcher",
+                  configPath: this.configPath,
+                  eventType,
+                  filename,
+                },
+              );
+
+              // Wait briefly and check if file exists, then re-setup watcher
+              setTimeout(() => {
+                if (fs.existsSync(this.configPath)) {
+                  this.handleFileChange();
+                  // Re-establish watcher if file was replaced
+                  this.fileWatcher!.isWatching = false;
+                  this.setupFileWatcher();
+                } else {
+                  logger.info(
+                    "Configuration file was deleted, clearing cache",
+                    {
+                      module: "config-service",
+                      method: "setupFileWatcher",
+                      configPath: this.configPath,
+                    },
+                  );
+                  this.configCache = null;
+                }
+              }, 100);
+            }
+          },
+        );
+
+        // Handle watcher errors
+        this.watcher.on("error", error => {
+          logger.warn("File watcher error, recreating watcher", {
+            module: "config-service",
+            method: "setupFileWatcher",
+            configPath: this.configPath,
+            error: error instanceof Error ? error.message : String(error),
+          });
+
+          // Recreate the watcher after a delay
+          setTimeout(() => {
+            if (this.fileWatcher) {
+              this.fileWatcher.isWatching = false;
+              this.setupFileWatcher();
+            }
+          }, 1000);
         });
+
         this.fileWatcher.isWatching = true;
+
+        logger.debug("File watcher setup successfully with fs.watch", {
+          module: "config-service",
+          method: "setupFileWatcher",
+          configPath: this.configPath,
+        });
       }
     } catch (error) {
       logger.warn("Failed to setup file watcher for config file", {
@@ -215,7 +284,9 @@ class ConfigService {
 
     try {
       const fileContent = fs.readFileSync(this.configPath, "utf8");
-      const parsedYaml = yaml.load(fileContent) as Record<string, any>;
+      const parsedYaml = yaml.load(fileContent, {
+        schema: yaml.JSON_SCHEMA,
+      }) as Record<string, any>;
 
       if (!parsedYaml || typeof parsedYaml !== "object") {
         logger.warn(
@@ -251,6 +322,19 @@ class ConfigService {
       return {};
     }
 
+    const overrideSize = jsonOverride.length;
+    if (overrideSize > 50000) {
+      logger.warn(
+        `FIRECRAWL_CONFIG_OVERRIDE too large (${overrideSize} chars), skipping`,
+        {
+          module: "config-service",
+          method: "loadJsonOverride",
+          size: overrideSize,
+        },
+      );
+      return {};
+    }
+
     try {
       const parsed = JSON.parse(jsonOverride);
 
@@ -265,13 +349,20 @@ class ConfigService {
         return {};
       }
 
-      logger.debug("Applied JSON configuration override", {
-        module: "config-service",
-        method: "loadJsonOverride",
-        overrideKeys: Object.keys(parsed),
-      });
+      // Apply environment variable substitution (similar to YAML behavior)
+      const substitutedConfig = this.substituteEnvironmentVariables(parsed);
 
-      return parsed;
+      logger.debug(
+        `Applied JSON configuration override (${overrideSize} chars)`,
+        {
+          module: "config-service",
+          method: "loadJsonOverride",
+          overrideKeys: Object.keys(substitutedConfig),
+          size: overrideSize,
+        },
+      );
+
+      return substitutedConfig;
     } catch (error) {
       logger.error("Failed to parse FIRECRAWL_CONFIG_OVERRIDE JSON, ignoring", {
         module: "config-service",
@@ -397,10 +488,14 @@ class ConfigService {
       this.watchTimeout = null;
     }
 
-    if (this.fileWatcher?.isWatching) {
+    if (this.watcher) {
       try {
-        fs.unwatchFile(this.configPath);
-        this.fileWatcher.isWatching = false;
+        this.watcher.close();
+        this.watcher = null;
+        if (this.fileWatcher) {
+          this.fileWatcher.isWatching = false;
+          this.fileWatcher = null;
+        }
       } catch (error) {
         logger.warn("Failed to cleanup file watcher", {
           module: "config-service",
@@ -419,4 +514,5 @@ class ConfigService {
   }
 }
 
-export default ConfigService.getInstance();
+export const configServicePromise = ConfigService.getInstance();
+export default configServicePromise;

@@ -24,7 +24,11 @@ import { logger as _logger } from "../../lib/logger";
 import { BLOCKLISTED_URL_MESSAGE } from "../../lib/strings";
 import { isUrlBlocked } from "../../scraper/WebScraper/utils/blocklist";
 import { checkPermissions } from "../../lib/permissions";
-import { shouldExcludeUrl } from "../../lib/language-filter.js";
+import {
+  shouldExcludeUrl,
+  isLanguageSupported,
+  getSupportedLanguages,
+} from "../../lib/language-filter.js";
 
 export async function batchScrapeController(
   req: RequestWithAuth<{}, BatchScrapeResponse, BatchScrapeRequest>,
@@ -73,9 +77,16 @@ export async function batchScrapeController(
         const nu = urlSchema.parse(u);
         if (!isUrlBlocked(nu, req.acuc?.flags ?? null)) {
           // Apply automatic language filtering if DEFAULT_CRAWL_LANGUAGE is set
-          const defaultLanguage = process.env.DEFAULT_CRAWL_LANGUAGE;
-          if (defaultLanguage && defaultLanguage.toLowerCase() !== "all") {
-            if (shouldExcludeUrl(nu, defaultLanguage)) {
+          const rawLang = process.env.DEFAULT_CRAWL_LANGUAGE ?? "";
+          const defaultLanguage = rawLang.trim().toLowerCase();
+          if (defaultLanguage && defaultLanguage !== "all") {
+            // Validate the language code and warn if unsupported
+            if (!isLanguageSupported(defaultLanguage)) {
+              logger.warn("Invalid DEFAULT_CRAWL_LANGUAGE configuration", {
+                invalidValue: defaultLanguage,
+                supportedLanguages: getSupportedLanguages(),
+              });
+            } else if (shouldExcludeUrl(nu, defaultLanguage)) {
               invalidURLs.push(u);
               logger.debug("URL excluded by language filtering", {
                 url: nu,

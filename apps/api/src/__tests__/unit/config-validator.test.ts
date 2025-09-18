@@ -20,7 +20,12 @@ describe("Config Validator", () => {
   });
 
   afterEach(() => {
-    process.env = originalEnv;
+    // Remove any keys added during tests
+    for (const k of Object.keys(process.env)) {
+      if (!(k in originalEnv)) delete process.env[k];
+    }
+    // Restore original values
+    Object.assign(process.env, originalEnv);
   });
 
   describe("YAML Schema Validation", () => {
@@ -54,15 +59,15 @@ describe("Config Validator", () => {
         search: {
           limit: 5,
           lang: "en",
-          country: "us",
+          country: "US",
           sources: ["web"],
           timeout: 60000,
           ignoreInvalidURLs: false,
         },
         embeddings: {
           enabled: false,
-          model: "text-embedding-ada-002",
-          provider: "openai",
+          model: "Qwen/Qwen2.5-0.5B-Instruct",
+          provider: "tei",
           dimension: 1024,
           maxContentLength: 8000,
           minSimilarityThreshold: 0.7,
@@ -71,7 +76,7 @@ describe("Config Validator", () => {
           includeLangs: ["en"],
           excludeLangs: ["fr"],
           location: {
-            country: "us",
+            country: "US",
             languages: ["en"],
           },
         },

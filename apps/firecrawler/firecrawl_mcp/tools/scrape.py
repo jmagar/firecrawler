@@ -11,7 +11,7 @@ async patterns, intelligent parameter routing, and progress reporting.
 """
 
 import logging
-from typing import Annotated, List, Union
+from typing import Annotated, Any, List, Union
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -228,19 +228,23 @@ async def _handle_scrape_status(
     auto_paginate: bool,
     max_pages: int | None,
     max_results: int | None
-) -> BatchScrapeJob:
+) -> dict[str, Any]:
     """
-    Handle batch scrape status checking mode.
+    Handle batch scrape status checking mode - STATUS ONLY, NO DATA.
+    
+    This function returns only scrape progress information and brief summaries.
+    It does NOT return actual scraped content. Use vector search or other tools
+    to retrieve actual scraped data.
     
     Args:
         ctx: MCP context for logging
         job_id: Batch scrape job ID
-        auto_paginate: Whether to automatically fetch all pages of results
-        max_pages: Maximum number of pages to fetch
-        max_results: Maximum number of results to return
+        auto_paginate: Whether to automatically fetch all pages of results (disabled for status)
+        max_pages: Maximum number of pages to fetch (ignored for status)
+        max_results: Maximum number of results to return (ignored for status)
         
     Returns:
-        BatchScrapeJob: Job status with progress information and scraped documents
+        dict[str, Any]: Status information with concise summary, NO actual data
         
     Raises:
         ToolError: If status check fails or job ID is invalid
@@ -255,20 +259,18 @@ async def _handle_scrape_status(
         if not job_id.strip():
             raise ToolError("Job ID cannot be empty")
 
-        # Create pagination config if specified
-        pagination_config = None
-        if not auto_paginate or max_pages or max_results:
-            pagination_config = PaginationConfig(
-                auto_paginate=auto_paginate or False,
-                max_pages=max_pages,
-                max_results=max_results
-            )
+        # Force pagination config to NOT fetch data - we only want status
+        pagination_config = PaginationConfig(
+            auto_paginate=False,  # Never auto-paginate for status checks
+            max_pages=0,          # Don't fetch any data pages
+            max_results=0         # Don't return any actual results
+        )
 
         # Report initial progress
         await ctx.report_progress(20, 100)
 
-        # Get batch scrape status
-        await ctx.info("Fetching job status and results")
+        # Get batch scrape status WITHOUT data
+        await ctx.info("Fetching job status from Firecrawl API (status only, no data)")
         batch_job = client.get_batch_scrape_status(
             job_id=job_id,
             pagination_config=pagination_config
@@ -289,17 +291,48 @@ async def _handle_scrape_status(
             await ctx.report_progress(progress, 100)
             await ctx.info(f"Batch job in progress: {batch_job.completed}/{batch_job.total} URLs processed")
 
+        # Create URLs list from data if available, otherwise empty list
+        scraped_urls = []
+        if hasattr(batch_job, 'data') and batch_job.data:
+            # Extract just URLs, not content
+            for doc in batch_job.data:
+                # Try to get URL from metadata.url attribute
+                if hasattr(doc, 'metadata') and doc.metadata and hasattr(doc.metadata, 'url'):
+                    scraped_urls.append(doc.metadata.url)
+                elif hasattr(doc, 'url') and doc.url:
+                    scraped_urls.append(doc.url)
+        
+        # Calculate progress percentage
+        progress_percentage = 0
+        if batch_job.total and batch_job.total > 0:
+            progress_percentage = round((batch_job.completed / batch_job.total) * 100, 1)
+
+        # Create status-only response with concise summary
+        status_response = {
+            'job_id': job_id,
+            'status': batch_job.status,
+            'completed': batch_job.completed,
+            'total': batch_job.total,
+            'progress_percentage': progress_percentage,
+            'credits_used': getattr(batch_job, 'credits_used', None),
+            'expires_at': getattr(batch_job, 'expires_at', None),
+            'summary': {
+                'urls_scraped': scraped_urls,
+                'total_urls_to_scrape': batch_job.total,
+                'urls_successfully_scraped': batch_job.completed,
+                'error_message': getattr(batch_job, 'error', None) if batch_job.status == 'failed' else None
+            }
+        }
+
         # Log comprehensive status
-        result_count = len(batch_job.data) if batch_job.data else 0
         logger.info(
             f"Batch status for job {job_id}: "
             f"status={batch_job.status}, "
             f"completed={batch_job.completed}/{batch_job.total}, "
-            f"results={result_count}, "
             f"credits_used={batch_job.credits_used}"
         )
 
-        return batch_job
+        return status_response
 
     except FirecrawlError as e:
         error_msg = f"Firecrawl API error during batch status check: {e}"
@@ -317,9 +350,9 @@ def register_scrape_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="scrape",
-        description="Scrape single or multiple URLs with automatic mode detection and status checking",
+        description="Scrape single or multiple URLs with automatic mode detection. Status mode returns progress only, NOT actual data.",
         annotations={
-            "title": "Website Scraper",
+            "title": "Website Scraper (Status mode returns summaries only)",
             "readOnlyHint": False,      # Can initiate operations
             "destructiveHint": False,   # Safe - only extracts content  
             "openWorldHint": True,      # Accesses external websites
@@ -356,20 +389,20 @@ def register_scrape_tools(mcp: FastMCP) -> None:
         
         # Status checking parameters (ignored for scraping)
         auto_paginate: Annotated[bool, Field(
-            description="Automatically fetch all result pages"
-        )] = True,
+            description="Automatically fetch all result pages (disabled for status checks)"
+        )] = False,
         max_pages: Annotated[int | None, Field(
             description="Maximum result pages to fetch", ge=1, le=100
         )] = None,
         max_results: Annotated[int | None, Field(
             description="Maximum results to return", ge=1, le=10000
         )] = None
-    ) -> Union[Document, BatchScrapeResponse, BatchScrapeJob]:
+    ) -> Union[Document, BatchScrapeResponse, dict[str, Any]]:
         """
         Scrape single or multiple URLs with automatic mode detection and status checking.
         
         This unified tool automatically detects the operation mode based on parameters:
-        - If job_id provided: Status checking mode for batch operations
+        - If job_id provided: Status checking mode for batch operations (STATUS ONLY, NO DATA)
         - If urls is string: Single URL scraping mode
         - If urls is list: Batch URL scraping mode
         
@@ -386,14 +419,28 @@ def register_scrape_tools(mcp: FastMCP) -> None:
             max_results: Maximum results to return
             
         Returns:
-            Union[Document, BatchScrapeResponse, BatchScrapeJob]: 
+            Union[Document, BatchScrapeResponse, dict[str, Any]]: 
                 Document for single URL, BatchScrapeResponse for batch start, 
-                BatchScrapeJob for status checking
+                status summary dict for status checking (NO actual data)
                 
         Raises:
             ToolError: If operation fails or configuration is invalid
         """
         try:
+            # Handle MCP serialization issue where arrays might be stringified
+            if urls and isinstance(urls, str):
+                # Check if it's a stringified array
+                if urls.startswith('[') and urls.endswith(']'):
+                    try:
+                        import ast
+                        parsed_urls = ast.literal_eval(urls)
+                        if isinstance(parsed_urls, list):
+                            await ctx.info(f"Detected stringified URL array, converting to list with {len(parsed_urls)} URLs")
+                            urls = parsed_urls
+                    except (ValueError, SyntaxError):
+                        # Not a valid stringified list, treat as single URL
+                        pass
+            
             # Mode detection and parameter validation
             if job_id and urls:
                 raise ToolError("Cannot provide both 'job_id' and 'urls' - choose either scraping or status checking")

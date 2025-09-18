@@ -31,6 +31,13 @@ ENV/
 env.bak/
 venv.bak/
 
+# Local databases
+db.sqlite3
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
 # UV package manager
 uv.lock
 
@@ -71,7 +78,6 @@ Thumbs.db
 # Backup files
 *.bak
 *.backup
-*~
 
 # Local development
 .env.local
@@ -115,6 +121,5 @@ celerybeat.pid
 /site
 
 # mypy
-.mypy_cache/
 .dmypy.json
 dmypy.json

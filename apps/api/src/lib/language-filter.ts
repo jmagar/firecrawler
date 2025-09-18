@@ -83,6 +83,12 @@ const URL_LANGUAGE_INDICATORS = [
   "&locale={{lang}}$", // &locale=es
   "&locale={{lang}}&", // &locale=es&other=value
   "&locale={{lang}}(#|$)", // &locale=es#section
+  "\\?hl={{lang}}$", // ?hl=es
+  "\\?hl={{lang}}&", // ?hl=es&other=value
+  "\\?hl={{lang}}(#|$)", // ?hl=es#section
+  "&hl={{lang}}$", // &hl=es
+  "&hl={{lang}}&", // &hl=es&other=value
+  "&hl={{lang}}(#|$)", // &hl=es#section
 
   // Fragment patterns
   "#{{lang}}$", // #es (end of URL)
@@ -102,9 +108,12 @@ const SUPPORTED_LANGUAGE_SET = new Set(Object.keys(LANGUAGE_PATTERNS));
  * @returns Array of compiled RegExp objects for URL exclusion
  */
 function getLanguageExcludeRegexes(allowedLanguage: string): RegExp[] {
+  // Normalize cache key to avoid redundant entries for language variants
+  const cacheKey = allowedLanguage.toLowerCase().split(/[-_]/)[0].trim();
+
   // Use the cache if available
-  if (PATTERN_CACHE.has(allowedLanguage)) {
-    return PATTERN_CACHE.get(allowedLanguage)!;
+  if (PATTERN_CACHE.has(cacheKey)) {
+    return PATTERN_CACHE.get(cacheKey)!;
   }
 
   // Get patterns and compile them once
@@ -122,8 +131,8 @@ function getLanguageExcludeRegexes(allowedLanguage: string): RegExp[] {
     }
   }
 
-  // Cache the compiled regexes
-  PATTERN_CACHE.set(allowedLanguage, regexes);
+  // Cache the compiled regexes using normalized key
+  PATTERN_CACHE.set(cacheKey, regexes);
   return regexes;
 }
 
@@ -156,7 +165,7 @@ export function getLanguageExcludePatterns(allowedLanguage: string): string[] {
   }
 
   // Build regex patterns for each excluded language
-  const excludePatterns: string[] = [];
+  const excludePatterns = new Set<string>();
 
   for (const excludedLang of Array.from(excludedLanguages)) {
     // Skip if this excluded language is actually a variant of our allowed language
@@ -174,11 +183,11 @@ export function getLanguageExcludePatterns(allowedLanguage: string): string[] {
         /\{\{lang\}\}/g,
         escapeRegex(excludedLang),
       );
-      excludePatterns.push(pattern);
+      excludePatterns.add(pattern);
     }
   }
 
-  return excludePatterns;
+  return Array.from(excludePatterns);
 }
 
 /**

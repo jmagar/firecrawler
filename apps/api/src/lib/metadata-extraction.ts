@@ -73,9 +73,9 @@ function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | null {
             return p;
           }
         });
-      if (pathParts.length >= 3) {
+      if (pathParts.length >= 4) {
         const [org, repo, branch, ...fileParts] = pathParts;
-        const filePath = fileParts.length ? fileParts.join("/") : undefined;
+        const filePath = fileParts.join("/");
         const fileExtension =
           filePath && filePath.includes(".")
             ? filePath.split(".").pop()?.toLowerCase()
@@ -90,6 +90,7 @@ function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | null {
           file_extension: fileExtension,
         };
       }
+      return null;
     } else {
       const pathParts = urlObj.pathname
         .split("/")
@@ -113,12 +114,14 @@ function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | null {
           remainingParts.length >= 2 &&
           (remainingParts[0] === "blob" || remainingParts[0] === "tree")
         ) {
-          branchVersion = remainingParts[1];
-          if (remainingParts.length > 2) {
-            filePath = remainingParts.slice(2).join("/");
-            if (filePath.includes(".")) {
-              fileExtension = filePath.split(".").pop()?.toLowerCase();
-            }
+          const afterMarker = remainingParts.slice(1);
+          const idx = afterMarker.findIndex(seg => /\.[a-z0-9]+$/i.test(seg));
+          if (idx >= 0) {
+            branchVersion = afterMarker.slice(0, idx).join("/");
+            filePath = afterMarker.slice(idx).join("/");
+            fileExtension = filePath.split(".").pop()?.toLowerCase();
+          } else {
+            branchVersion = afterMarker.join("/");
           }
         }
 
@@ -160,7 +163,10 @@ function classifyContentType(
     })();
 
     // README detection
-    if (filename.match(/^readme\.(md|txt|rst)$/i) || filename === "readme") {
+    if (
+      filename.match(/^readme\.(md|mdx|txt|rst|adoc)$/i) ||
+      filename === "readme"
+    ) {
       contentType = "readme";
       confidence = 0.95;
       indicators.push("filename_readme");
@@ -188,7 +194,12 @@ function classifyContentType(
       indicators.push("url_tutorial_pattern");
     }
     // Configuration files
-    else if (filename.match(/\.(json|yaml|yml|toml|ini|conf|config)$/i)) {
+    else if (
+      filename.match(
+        /\.(json|yaml|yml|toml|ini|conf|config|env|properties|cfg)$/i,
+      ) ||
+      filename === ".env"
+    ) {
       contentType = "configuration";
       confidence = 0.9;
       indicators.push("config_file_extension");
@@ -340,8 +351,7 @@ function extractDomainMetadata(url: string): DomainMetadata {
     // Blog platforms
     else if (
       ["medium.com", "dev.to", "hashnode.com"].includes(domain) ||
-      subdomain === "blog" ||
-      subdomain?.startsWith("blog.")
+      (subdomain && subdomain.split(".").includes("blog"))
     ) {
       isDocumentationSite = true;
       documentationType = "blog";
@@ -404,6 +414,7 @@ function detectProgrammingLanguage(
       cxx: "cpp",
       cc: "cpp",
       c: "c",
+      h: "c",
       hpp: "cpp",
       go: "go",
       rs: "rust",
@@ -476,7 +487,11 @@ function countWords(content: string): number {
     .replace(/`[^`]*`/g, "");
   const withoutHtml = withoutCodeBlocks.replace(/<[^>]*>/g, "");
 
-  if ((Intl as any).Segmenter) {
+  if (
+    typeof Intl !== "undefined" &&
+    "Segmenter" in Intl &&
+    typeof (Intl as any).Segmenter === "function"
+  ) {
     const seg = new (Intl as any).Segmenter(undefined, { granularity: "word" });
     let count = 0;
     for (const { isWordLike } of seg.segment(withoutHtml) as any)

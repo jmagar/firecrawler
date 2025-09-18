@@ -5,9 +5,8 @@ This package contains all the MCP tools that expose Firecrawl functionality:
 - scrape: Single URL scraping with advanced options
 - batch_scrape: Multiple URL scraping with parallel processing  
 - batch_status: Check status of batch operations
-- crawl: Website crawling with job management
-- crawl_status: Check status of crawl operations
-- extract: AI-powered structured data extraction
+- crawl: Website crawling with unified status checking
+- extract: AI-powered structured data extraction with unified status checking
 - map: Website URL discovery and mapping
 - firesearch: Web search with optional content extraction
 - firerag: Vector database semantic search without additional LLM synthesis

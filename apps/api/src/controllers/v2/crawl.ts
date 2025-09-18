@@ -116,6 +116,7 @@ export async function crawlController(
   // Apply automatic language filtering if DEFAULT_CRAWL_LANGUAGE is set
   const defaultLanguageRaw = process.env.DEFAULT_CRAWL_LANGUAGE;
   const defaultLanguage = defaultLanguageRaw?.trim().toLowerCase() || undefined;
+  let __langPatternSet: Set<string> | null = null;
   if (defaultLanguage && defaultLanguage !== "all") {
     try {
       const languageExcludePatterns =
@@ -125,6 +126,8 @@ export async function crawlController(
         __languageExcludeCache.set(defaultLanguage, languageExcludePatterns);
       }
       if (languageExcludePatterns.length > 0) {
+        // Store generated patterns to avoid recompiling during validation
+        __langPatternSet = new Set(languageExcludePatterns);
         const existingExcludePaths = finalCrawlerOptions.excludePaths || [];
         // merge then deduplicate while preserving order
         const merged = [...existingExcludePaths, ...languageExcludePatterns];
@@ -142,6 +145,9 @@ export async function crawlController(
         }
         logger.info("Applied automatic language filtering", {
           allowedLanguage: defaultLanguage,
+          languageFilterSource: "env_default",
+          existingExcludePatternsCount: existingExcludePaths.length,
+          addedExcludePatternsCount: languageExcludePatterns.length,
           patternsAdded: languageExcludePatterns.length,
           totalExcludePatterns: finalCrawlerOptions.excludePaths.length,
           duplicatesRemoved,
@@ -168,6 +174,8 @@ export async function crawlController(
 
   if (Array.isArray(finalCrawlerOptions.excludePaths)) {
     for (const x of finalCrawlerOptions.excludePaths) {
+      // Skip validation for auto-generated language patterns since they're already validated internally
+      if (__langPatternSet?.has(x)) continue;
       try {
         new RegExp(x);
       } catch (e) {
