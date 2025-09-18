@@ -115,8 +115,8 @@ class ConfigService {
       }
 
       if (!this.fileWatcher.isWatching) {
-        fs.watchFile(this.configPath, { interval: 1000 }, (curr, prev) => {
-          if (curr.mtime.getTime() !== prev.mtime.getTime()) {
+        fs.watch(this.configPath, eventType => {
+          if (eventType === "change") {
             this.handleFileChange();
           }
         });

@@ -58,8 +58,8 @@ const engines: Engine[] = [
     : []),
   ...(usePlaywright ? ["playwright" as const] : []),
   "fetch",
-  "pdf",
-  "docx",
+  // "pdf",  // Disabled - was causing all URLs to be scraped as PDFs
+  // "docx", // Disabled - not needed for general web scraping
 ];
 
 const featureFlags = [

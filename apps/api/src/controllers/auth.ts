@@ -142,7 +142,7 @@ const mockACUC: () => AuthCreditUsageChunk = () => ({
     bucketLimit: 25,
     planModifier: 0.1,
   },
-  concurrency: 99999999,
+  concurrency: parseInt(process.env.NUM_WORKERS_PER_QUEUE || "16"),
   flags: null,
   is_extract: false,
 });
