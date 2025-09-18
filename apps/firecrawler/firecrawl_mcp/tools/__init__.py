@@ -10,7 +10,7 @@ This package contains all the MCP tools that expose Firecrawl functionality:
 - extract: AI-powered structured data extraction
 - map: Website URL discovery and mapping
 - firesearch: Web search with optional content extraction
-- firerag: Vector database Q&A with LLM synthesis
+- firerag: Vector database semantic search without additional LLM synthesis
 
 Each tool follows FastMCP patterns with proper validation, error handling,
 and progress reporting.

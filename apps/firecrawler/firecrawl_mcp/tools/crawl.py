@@ -1,12 +1,16 @@
 """
-Crawling tools for the Firecrawler MCP server.
+Unified crawling tool for the Firecrawler MCP server.
 
-This module implements crawling tools with job ID management, progress reporting,
-status checking, and proper error handling for long-running operations.
+This module implements a single unified crawling tool with intelligent mode detection:
+- Crawl initiation: When url parameter is provided
+- Status checking: When job_id parameter is provided
+
+The tool uses FastMCP decorators, comprehensive annotations, job ID management,
+progress reporting, and proper error handling for long-running operations.
 """
 
 import logging
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Union
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -130,26 +134,212 @@ def _convert_to_crawl_request(
         raise ToolError(f"Failed to convert parameters to CrawlRequest: {e}")
 
 
+async def _handle_crawl_start(
+    ctx: Context,
+    url: str,
+    prompt: str | None = None,
+    exclude_paths: list[str] | None = None,
+    include_paths: list[str] | None = None,
+    max_discovery_depth: int | None = None,
+    sitemap: Literal["skip", "include"] = "include",
+    ignore_query_parameters: bool = False,
+    limit: int | None = None,
+    crawl_entire_domain: bool = False,
+    allow_external_links: bool = False,
+    allow_subdomains: bool = False,
+    delay: int | None = None,
+    max_concurrency: int | None = None,
+    webhook: str | None = None,
+    scrape_options: dict[str, Any] | None = None,
+    zero_data_retention: bool = False,
+    integration: str | None = None
+) -> CrawlResponse:
+    """
+    Handle crawl initiation mode.
+    
+    Args:
+        ctx: MCP context for logging
+        url: The URL to crawl
+        [other parameters as per original crawl function]
+        
+    Returns:
+        CrawlResponse: Information about the started crawl job
+        
+    Raises:
+        ToolError: If the crawl cannot be started
+    """
+    await ctx.info(f"Crawl initiation mode: Starting crawl for URL: {url}")
+
+    try:
+        # Validate parameters
+        _validate_crawl_parameters(url, exclude_paths, include_paths, max_concurrency)
+
+        # Get Firecrawl client
+        firecrawl_client = get_firecrawl_client()
+
+        await ctx.info("Submitting crawl request to Firecrawl API")
+
+        # Start the crawl
+        # Convert sitemap strategy to ignore_sitemap boolean  
+        ignore_sitemap = sitemap == "skip" if sitemap else False
+        
+        crawl_response: CrawlResponse = firecrawl_client.start_crawl(
+            url=url,
+            prompt=prompt,
+            exclude_paths=exclude_paths,
+            include_paths=include_paths,
+            max_discovery_depth=max_discovery_depth,
+            ignore_sitemap=ignore_sitemap,
+            ignore_query_parameters=ignore_query_parameters,
+            limit=limit,
+            crawl_entire_domain=crawl_entire_domain,
+            allow_external_links=allow_external_links,
+            allow_subdomains=allow_subdomains,
+            delay=delay,
+            max_concurrency=max_concurrency,
+            webhook=webhook,
+            scrape_options=scrape_options,
+            zero_data_retention=zero_data_retention,
+            integration=integration
+        )
+
+        await ctx.info(f"Crawl started successfully with job ID: {crawl_response.id}")
+
+        return crawl_response
+
+    except FirecrawlError as e:
+        error_context = {
+            "tool": "crawl",
+            "url": url,
+            "limit": limit
+        }
+        mcp_error = handle_firecrawl_error(e, error_context)
+        await ctx.error(f"Firecrawl API error during crawl: {mcp_error}")
+        raise ToolError(str(mcp_error))
+
+    except ToolError:
+        raise
+
+    except Exception as e:
+        error_msg = f"Unexpected error during crawl: {e}"
+        await ctx.error(error_msg)
+        raise ToolError(error_msg) from e
+
+
+async def _handle_crawl_status(
+    ctx: Context,
+    job_id: str,
+    auto_paginate: bool = True,
+    max_pages: int | None = None,
+    max_results: int | None = None,
+    max_wait_time: int | None = None
+) -> CrawlJob:
+    """
+    Handle crawl status checking mode.
+    
+    Args:
+        ctx: MCP context for logging
+        job_id: The crawl job ID to check status for
+        auto_paginate: Whether to automatically fetch all pages of results
+        max_pages: Maximum number of pages to fetch
+        max_results: Maximum number of results to return
+        max_wait_time: Maximum time to wait for pagination
+        
+    Returns:
+        CrawlJob: Current status and available results
+        
+    Raises:
+        ToolError: If the status cannot be retrieved
+    """
+    await ctx.info(f"Status checking mode: Checking status for crawl job: {job_id}")
+
+    try:
+        # Get Firecrawl client
+        firecrawl_client = get_firecrawl_client()
+
+        # Set up pagination configuration
+        pagination_config = None
+        if not auto_paginate or max_pages or max_results or max_wait_time:
+            pagination_config = PaginationConfig(
+                auto_paginate=auto_paginate,
+                max_pages=max_pages,
+                max_results=max_results,
+                max_wait_time=max_wait_time
+            )
+
+        await ctx.info("Fetching crawl status from Firecrawl API")
+
+        # Report initial progress
+        await ctx.report_progress(progress=1, total=3)
+
+        # Get crawl status
+        crawl_job: CrawlJob = firecrawl_client.get_crawl_status(
+            job_id,
+            pagination_config=pagination_config
+        )
+
+        await ctx.report_progress(progress=2, total=3)
+
+        await ctx.info(f"Status: {crawl_job.status}, Progress: {crawl_job.completed}/{crawl_job.total}")
+
+        await ctx.report_progress(progress=3, total=3)
+
+        # Log completion
+        if crawl_job.status == "completed":
+            await ctx.info(f"Crawl completed successfully. Retrieved {len(crawl_job.data)} documents.")
+        elif crawl_job.status == "failed":
+            await ctx.warning(f"Crawl failed. {crawl_job.completed} documents were crawled before failure.")
+        else:
+            await ctx.info(f"Crawl in progress. {crawl_job.completed}/{crawl_job.total} pages crawled.")
+
+        # Return the full crawl_job object, not just summary
+        return crawl_job
+
+    except FirecrawlError as e:
+        error_context = {
+            "tool": "crawl_status",
+            "job_id": job_id
+        }
+        mcp_error = handle_firecrawl_error(e, error_context)
+        await ctx.error(f"Firecrawl API error during crawl status check: {mcp_error}")
+        raise ToolError(str(mcp_error))
+
+    except ToolError:
+        raise
+
+    except Exception as e:
+        error_msg = f"Unexpected error checking crawl status: {e}"
+        await ctx.error(error_msg)
+        raise ToolError(error_msg) from e
 
 
 def register_crawl_tools(mcp: FastMCP) -> None:
-    """Register crawling tools with the FastMCP server."""
+    """Register unified crawling tool with the FastMCP server."""
 
     @mcp.tool(
         name="crawl",
-        description="Start crawling a website to extract content from multiple pages",
+        description="Start website crawling or check crawl job status with automatic mode detection",
         annotations={
             "title": "Website Crawler",
-            "destructiveHint": False,
-            "openWorldHint": True
+            "readOnlyHint": False,      # Can initiate crawl jobs
+            "destructiveHint": False,   # Safe - only extracts content
+            "openWorldHint": True,      # Accesses external websites
+            "idempotentHint": False     # Results may vary between calls
         }
     )
     async def crawl(
         ctx: Context,
-        url: Annotated[str, Field(
-            description="The URL to crawl",
+        # Mode detection parameters
+        url: Annotated[str | None, Field(
+            description="Website URL to crawl (for starting new crawl job)",
             pattern=r"^https?://.*"
-        )],
+        )] = None,
+        job_id: Annotated[str | None, Field(
+            description="Crawl job ID for status checking (36-char UUID format)",
+            pattern=r"^[a-f0-9\-]{36}$"
+        )] = None,
+        
+        # Crawl initiation parameters (ignored for status checking)
         prompt: Annotated[str | None, Field(
             description="Natural language prompt for AI-guided crawling",
             max_length=2000
@@ -210,18 +400,33 @@ def register_crawl_tools(mcp: FastMCP) -> None:
         integration: Annotated[str | None, Field(
             description="Integration identifier",
             max_length=100
-        )] = None
-    ) -> CrawlResponse:
-        """
-        Start a website crawl job to extract content from multiple pages.
+        )] = None,
         
-        This tool initiates a crawl job that will discover and scrape multiple pages
-        from a website. The crawl runs asynchronously and returns a job ID that can
-        be used to check status and retrieve results.
+        # Status checking parameters (ignored for crawl initiation)
+        auto_paginate: Annotated[bool, Field(
+            description="Automatically fetch all result pages"
+        )] = True,
+        max_pages: Annotated[int | None, Field(
+            description="Maximum result pages to fetch", ge=1, le=100
+        )] = None,
+        max_results: Annotated[int | None, Field(
+            description="Maximum results to return", ge=1, le=10000
+        )] = None,
+        max_wait_time: Annotated[int | None, Field(
+            description="Maximum wait time for pagination", ge=1, le=300
+        )] = None
+    ) -> Union[CrawlResponse, CrawlJob]:
+        """
+        Start website crawling or check crawl job status with automatic mode detection.
+        
+        This unified tool automatically detects the operation mode based on parameters:
+        - If job_id provided: Status checking mode for existing crawl jobs
+        - If url provided: Crawl initiation mode to start new crawl job
         
         Args:
             ctx: MCP context for logging and progress reporting
-            url: The URL to crawl
+            url: Website URL to crawl (for starting new crawl job)
+            job_id: Crawl job ID for status checking
             prompt: Natural language prompt for AI-guided crawling
             exclude_paths: URL patterns to exclude from crawling
             include_paths: URL patterns to include in crawling
@@ -238,194 +443,53 @@ def register_crawl_tools(mcp: FastMCP) -> None:
             scrape_options: Additional scraping options
             zero_data_retention: Whether to enable zero data retention mode
             integration: Integration identifier
+            auto_paginate: Automatically fetch all result pages
+            max_pages: Maximum result pages to fetch
+            max_results: Maximum results to return
+            max_wait_time: Maximum wait time for pagination
             
         Returns:
-            CrawlResponse: Information about the started crawl job
+            Union[CrawlResponse, CrawlJob]: CrawlResponse for crawl initiation, 
+                CrawlJob for status checking
             
         Raises:
-            ToolError: If the crawl cannot be started
+            ToolError: If operation fails or configuration is invalid
         """
         try:
-            await ctx.info(f"Starting crawl for URL: {url}")
-
-            # Validate parameters
-            _validate_crawl_parameters(url, exclude_paths, include_paths, max_concurrency)
-
-            # Get Firecrawl client
-            firecrawl_client = get_firecrawl_client()
-
-            await ctx.info("Submitting crawl request to Firecrawl API")
-
-            # Start the crawl
-            # Convert sitemap strategy to ignore_sitemap boolean  
-            ignore_sitemap = sitemap == "skip" if sitemap else False
+            # Mode detection and parameter validation
+            if job_id and url:
+                raise ToolError("Cannot provide both 'job_id' and 'url' - choose either crawling or status checking")
             
-            crawl_response: CrawlResponse = firecrawl_client.start_crawl(
-                url=url,
-                prompt=prompt,
-                exclude_paths=exclude_paths,
-                include_paths=include_paths,
-                max_discovery_depth=max_discovery_depth,
-                ignore_sitemap=ignore_sitemap,
-                ignore_query_parameters=ignore_query_parameters,
-                limit=limit,
-                crawl_entire_domain=crawl_entire_domain,
-                allow_external_links=allow_external_links,
-                allow_subdomains=allow_subdomains,
-                delay=delay,
-                max_concurrency=max_concurrency,
-                webhook=webhook,
-                scrape_options=scrape_options,
-                zero_data_retention=zero_data_retention,
-                integration=integration
-            )
-
-            await ctx.info(f"Crawl started successfully with job ID: {crawl_response.id}")
-
-            return crawl_response
-
-        except FirecrawlError as e:
-            error_context = {
-                "tool": "crawl",
-                "url": url,
-                "limit": limit
-            }
-            mcp_error = handle_firecrawl_error(e, error_context)
-            await ctx.error(f"Firecrawl API error during crawl: {mcp_error}")
-            raise ToolError(str(mcp_error))
-
-        except ToolError:
-            raise
-
-        except Exception as e:
-            error_msg = f"Unexpected error during crawl: {e}"
-            await ctx.error(error_msg)
-            raise ToolError(error_msg) from e
-
-    @mcp.tool(
-        name="crawl_status",
-        description="Check the status of a crawl job and retrieve results",
-        annotations={
-            "title": "Crawl Status Checker",
-            "readOnlyHint": True,
-            "openWorldHint": True
-        }
-    )
-    async def crawl_status(
-        ctx: Context,
-        job_id: Annotated[str, Field(
-            description="The crawl job ID to check status for",
-            pattern=r"^[a-f0-9\-]{36}$"
-        )],
-        auto_paginate: Annotated[bool, Field(
-            description="Whether to automatically fetch all pages of results"
-        )] = True,
-        max_pages: Annotated[int | None, Field(
-            description="Maximum number of pages to fetch (if auto_paginate is True)",
-            ge=1,
-            le=100
-        )] = None,
-        max_results: Annotated[int | None, Field(
-            description="Maximum number of results to return",
-            ge=1,
-            le=10000
-        )] = None,
-        max_wait_time: Annotated[int | None, Field(
-            description="Maximum time to wait for pagination in seconds",
-            ge=1,
-            le=300
-        )] = None
-    ) -> CrawlJob:
-        """
-        Check the status of a crawl job and retrieve available results.
-        
-        This tool checks the progress of a running or completed crawl job and
-        returns the current status along with any scraped content that is available.
-        
-        Args:
-            ctx: MCP context for logging and progress reporting
-            job_id: The crawl job ID to check status for
-            auto_paginate: Whether to automatically fetch all pages of results
-            max_pages: Maximum number of pages to fetch
-            max_results: Maximum number of results to return
-            max_wait_time: Maximum time to wait for pagination
+            if not job_id and not url:
+                raise ToolError("Either 'url' (to start crawl) or 'job_id' (to check status) must be provided")
             
-        Returns:
-            CrawlJob: Current status and available results
-            
-        Raises:
-            ToolError: If the status cannot be retrieved
-        """
-        try:
-            await ctx.info(f"Checking status for crawl job: {job_id}")
-
-            # Get Firecrawl client
-            firecrawl_client = get_firecrawl_client()
-
-            # Set up pagination configuration
-            pagination_config = None
-            if not auto_paginate or max_pages or max_results or max_wait_time:
-                pagination_config = PaginationConfig(
-                    auto_paginate=auto_paginate,
-                    max_pages=max_pages,
-                    max_results=max_results,
-                    max_wait_time=max_wait_time
+            # Route to appropriate handler based on mode detection
+            if job_id:
+                # Status checking mode
+                if any([prompt, exclude_paths, include_paths, limit, webhook]):
+                    await ctx.warning("Ignoring crawl parameters in status checking mode")
+                return await _handle_crawl_status(ctx, job_id, auto_paginate, max_pages, max_results, max_wait_time)
+                
+            elif url:
+                # Crawl initiation mode
+                if any([max_pages, max_results, max_wait_time]):
+                    await ctx.warning("Ignoring status checking parameters in crawl initiation mode")
+                return await _handle_crawl_start(
+                    ctx, url, prompt, exclude_paths, include_paths, max_discovery_depth,
+                    sitemap, ignore_query_parameters, limit, crawl_entire_domain,
+                    allow_external_links, allow_subdomains, delay, max_concurrency,
+                    webhook, scrape_options, zero_data_retention, integration
                 )
-
-            await ctx.info("Fetching crawl status from Firecrawl API")
-
-            # Report initial progress
-            await ctx.report_progress(progress=1, total=3)
-
-            # Get crawl status
-            crawl_job: CrawlJob = firecrawl_client.get_crawl_status(
-                job_id,
-                pagination_config=pagination_config
-            )
-
-            await ctx.report_progress(progress=2, total=3)
-
-            await ctx.info(f"Status: {crawl_job.status}, Progress: {crawl_job.completed}/{crawl_job.total}")
-
-            await ctx.report_progress(progress=3, total=3)
-
-            # Log completion
-            if crawl_job.status == "completed":
-                await ctx.info(f"Crawl completed successfully. Retrieved {len(crawl_job.data)} documents.")
-            elif crawl_job.status == "failed":
-                await ctx.warning(f"Crawl failed. {crawl_job.completed} documents were crawled before failure.")
             else:
-                await ctx.info(f"Crawl in progress. {crawl_job.completed}/{crawl_job.total} pages crawled.")
-
-            # Return only status metadata, not the full content
-            status_summary = {
-                "job_id": job_id,
-                "status": crawl_job.status,
-                "completed": crawl_job.completed,
-                "total": crawl_job.total,
-                "url": crawl_job.url if hasattr(crawl_job, 'url') else None,
-                "created_at": crawl_job.created_at if hasattr(crawl_job, 'created_at') else None,
-                "pages_scraped": len(crawl_job.data) if crawl_job.data else 0
-            }
-            
-            return status_summary
-
-        except FirecrawlError as e:
-            error_context = {
-                "tool": "crawl_status",
-                "job_id": job_id
-            }
-            mcp_error = handle_firecrawl_error(e, error_context)
-            await ctx.error(f"Firecrawl API error during crawl status check: {mcp_error}")
-            raise ToolError(str(mcp_error))
-
+                raise ToolError("Invalid parameter combination")
+                
         except ToolError:
             raise
-
         except Exception as e:
-            error_msg = f"Unexpected error checking crawl status: {e}"
+            error_msg = f"Unexpected error in unified crawl tool: {e}"
             await ctx.error(error_msg)
             raise ToolError(error_msg) from e
+
 
 
 # Export the registration function

@@ -49,6 +49,7 @@ v2Router.post(
 v2Router.post(
   "/vector-search",
   authMiddleware(RateLimiterMode.Search),
+  yamlConfigDefaultsMiddleware,
   countryCheck,
   checkCreditsMiddleware(),
   blocklistMiddleware,

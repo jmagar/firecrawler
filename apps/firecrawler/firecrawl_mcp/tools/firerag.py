@@ -1,27 +1,24 @@
 """
 Vector search tool for the Firecrawl MCP server.
 
-This module implements the firerag tool for vector database Q&A with configurable
-LLM synthesis. The tool provides comprehensive filtering, configurable response modes
-(raw chunks vs LLM-synthesized answers), and OpenAI/Ollama integration following
+This module implements the firerag tool for vector database Q&A that returns raw
+semantic search results without any LLM synthesis layers. The tool provides
+comprehensive filtering, response size management, and pagination following
 FastMCP patterns.
 """
 
 import logging
+import json
 from typing import Annotated, Any, Literal
 
-from fastmcp import Context
+from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from firecrawl.v2.types import (
-    VectorSearchData,
     VectorSearchFilters,
     VectorSearchRequest,
-    VectorSearchResponse,
-    VectorSearchResult,
-    VectorSearchTiming,
 )
 from firecrawl.v2.utils.error_handler import FirecrawlError
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from ..core.client import get_firecrawl_client
 from ..core.exceptions import handle_firecrawl_error
@@ -29,19 +26,275 @@ from ..core.exceptions import handle_firecrawl_error
 logger = logging.getLogger(__name__)
 
 
+def estimate_response_tokens(data: Any) -> int:
+    """
+    Estimate tokens using 3-chars-per-token approximation.
+    
+    This provides a conservative estimate for MCP token limit checking.
+    
+    Args:
+        data: Any object to estimate tokens for
+        
+    Returns:
+        Estimated token count
+    """
+    try:
+        # Convert data to JSON string for consistent estimation
+        if hasattr(data, 'model_dump'):
+            # Pydantic model
+            text = json.dumps(data.model_dump(), ensure_ascii=False)
+        elif hasattr(data, '__dict__'):
+            # Regular object
+            text = json.dumps(data.__dict__, default=str, ensure_ascii=False)
+        else:
+            # Fallback to string representation
+            text = json.dumps(data, default=str, ensure_ascii=False)
+        
+        # Conservative estimate: 3 characters per token
+        return len(text) // 3
+    except Exception:
+        # Fallback for non-serializable objects
+        return len(str(data)) // 3
 
 
-# FireRAG response types - using SDK types directly for better alignment
-type FireRAGRawResponse = VectorSearchData
-type FireRAGSynthesisResponse = dict[str, Any]  # Structured dict with vector data + synthesis
+def optimize_response_size(
+    vector_data: Any,
+    target_tokens: int,
+    current_estimate: int,
+    limit: int
+) -> tuple[Any, dict[str, Any]]:
+    """
+    Progressive optimization levels to reduce response size.
+    
+    Args:
+        vector_data: Vector search data to optimize
+        target_tokens: Target token count
+        current_estimate: Current estimated token count
+        synthesis_mode: Current synthesis mode
+        limit: Current result limit
+        
+    Returns:
+        Tuple of (optimized_data, optimization_metadata)
+    """
+    optimization_metadata = {
+        "original_estimate": current_estimate,
+        "target_tokens": target_tokens,
+        "optimization_level": 0,
+        "actions_taken": []
+    }
+    
+    if current_estimate <= target_tokens:
+        return vector_data, optimization_metadata
+    
+    # Make a copy to avoid modifying original data
+    if hasattr(vector_data, 'model_copy'):
+        optimized_data = vector_data.model_copy(deep=True)
+    else:
+        # Fallback for non-Pydantic objects
+        import copy
+        optimized_data = copy.deepcopy(vector_data)
+    
+    # Level 1: Reduce content truncation to 250 chars
+    if hasattr(optimized_data, 'results') and optimized_data.results:
+        for result in optimized_data.results:
+            if hasattr(result, 'content') and result.content and len(result.content) > 250:
+                result.content = result.content[:250] + "..."
+        
+        new_estimate = estimate_response_tokens(optimized_data)
+        if new_estimate <= target_tokens:
+            optimization_metadata["optimization_level"] = 1
+            optimization_metadata["actions_taken"].append("truncated_content_250")
+            optimization_metadata["final_estimate"] = new_estimate
+            return optimized_data, optimization_metadata
+    
+    # Level 2: Limit results to min(limit, 5)
+    if hasattr(optimized_data, 'results') and optimized_data.results and len(optimized_data.results) > 5:
+        optimized_data.results = optimized_data.results[:5]
+        
+        new_estimate = estimate_response_tokens(optimized_data)
+        if new_estimate <= target_tokens:
+            optimization_metadata["optimization_level"] = 2
+            if "truncated_content_250" not in optimization_metadata["actions_taken"]:
+                optimization_metadata["actions_taken"].append("truncated_content_250")
+            optimization_metadata["actions_taken"].append("limited_to_5_results")
+            optimization_metadata["final_estimate"] = new_estimate
+            return optimized_data, optimization_metadata
+    
+    # Level 3: Return titles, similarity, URLs only
+    if hasattr(optimized_data, 'results') and optimized_data.results:
+        for result in optimized_data.results:
+            # Keep only essential fields
+            if hasattr(result, 'content'):
+                result.content = None
+            # Keep title, similarity, url, and minimal metadata
+            if hasattr(result, 'metadata') and result.metadata:
+                # Keep only sourceURL from metadata
+                source_url = result.metadata.get("sourceURL")
+                result.metadata = {"sourceURL": source_url} if source_url else {}
+        
+        new_estimate = estimate_response_tokens(optimized_data)
+        optimization_metadata["optimization_level"] = 3
+        if "truncated_content_250" not in optimization_metadata["actions_taken"]:
+            optimization_metadata["actions_taken"].append("truncated_content_250")
+        if "limited_to_5_results" not in optimization_metadata["actions_taken"]:
+            optimization_metadata["actions_taken"].append("limited_to_5_results")
+        optimization_metadata["actions_taken"].append("minimal_fields_only")
+        optimization_metadata["final_estimate"] = new_estimate
+        return optimized_data, optimization_metadata
+    
+    # If we get here, return what we have
+    optimization_metadata["final_estimate"] = estimate_response_tokens(optimized_data)
+    return optimized_data, optimization_metadata
 
 
-def register_firerag_tools(mcp_instance):
-    """Register the firerag tool with the FastMCP server instance."""
+async def paginate_vector_search(
+    client: Any,
+    search_request: dict[str, Any],
+    pagination_config: dict[str, Any],
+    ctx: Context
+) -> tuple[list[Any], dict[str, Any]]:
+    """
+    Make multiple vector_search calls with increasing offsets.
+    
+    Args:
+        client: Firecrawl client
+        search_request: Base search request parameters
+        pagination_config: Pagination configuration
+        ctx: FastMCP context for logging
+        
+    Returns:
+        Tuple of (aggregated_results, pagination_metadata)
+    """
+    all_results = []
+    pagination_metadata = {
+        "pages_fetched": 0,
+        "total_results": 0,
+        "stopped_reason": None
+    }
+    
+    max_pages = pagination_config.get("max_pages", 10)
+    max_results = pagination_config.get("max_results")
+    base_limit = search_request.get("limit", 10)
+    current_offset = search_request.get("offset", 0)
+    
+    page = 0
+    while page < max_pages:
+        try:
+            # Update offset for current page
+            current_request = search_request.copy()
+            current_request["offset"] = current_offset + (page * base_limit)
+            
+            await ctx.info(f"Fetching page {page + 1} with offset {current_request['offset']}")
+            
+            # Perform vector search for this page
+            page_data = client.vector_search(**current_request)
+            
+            if not page_data or not hasattr(page_data, 'results') or not page_data.results:
+                pagination_metadata["stopped_reason"] = "no_more_results"
+                break
+            
+            # Add results to aggregated list
+            all_results.extend(page_data.results)
+            pagination_metadata["pages_fetched"] = page + 1
+            pagination_metadata["total_results"] = len(all_results)
+            
+            # Check if we've hit max_results limit
+            if max_results and len(all_results) >= max_results:
+                all_results = all_results[:max_results]
+                pagination_metadata["total_results"] = len(all_results)
+                pagination_metadata["stopped_reason"] = "max_results_reached"
+                break
+            
+            # If this page returned fewer results than limit, we've reached the end
+            if len(page_data.results) < base_limit:
+                pagination_metadata["stopped_reason"] = "end_of_results"
+                break
+            
+            page += 1
+            
+        except Exception as e:
+            await ctx.error(f"Error fetching page {page + 1}: {e}")
+            pagination_metadata["stopped_reason"] = f"error_on_page_{page + 1}"
+            break
+    
+    if pagination_metadata["stopped_reason"] is None:
+        pagination_metadata["stopped_reason"] = "max_pages_reached"
+    
+    return all_results, pagination_metadata
 
-    @mcp_instance.tool(
+
+def _serialize_vector_data(
+    vector_data: Any,
+    query: str,
+    limit: int | None,
+    offset: int | None
+) -> dict[str, Any]:
+    """Convert vector search data to plain Python structures."""
+    try:
+        if hasattr(vector_data, 'model_dump'):
+            data = vector_data.model_dump()
+        else:
+            results = getattr(vector_data, 'results', [])
+            serialized_results = [
+                r.model_dump() if hasattr(r, 'model_dump') else r
+                for r in results
+            ]
+
+            total_results = getattr(vector_data, 'total_results', None)
+            if total_results is None:
+                total_results = getattr(vector_data, 'total', len(serialized_results))
+
+            data = {
+                "results": serialized_results,
+                "total_results": total_results,
+                "query": getattr(vector_data, 'query', query),
+                "limit": getattr(vector_data, 'limit', limit),
+                "offset": getattr(vector_data, 'offset', offset),
+                "threshold": getattr(vector_data, 'threshold', None),
+            }
+
+            if hasattr(vector_data, 'timing'):
+                data["timing"] = getattr(vector_data, 'timing')
+
+            if hasattr(vector_data, 'pagination'):
+                data["pagination"] = getattr(vector_data, 'pagination')
+
+        threshold_history = getattr(vector_data, 'threshold_history', None)
+        if threshold_history:
+            data["thresholdHistory"] = list(threshold_history)
+
+        # Ensure results are JSON-serializable
+        if 'results' in data:
+            data['results'] = [
+                r.model_dump() if hasattr(r, 'model_dump') else r
+                for r in data['results']
+            ]
+
+        return data
+    except Exception:
+        # Fallback best-effort serialization
+        return {
+            "query": query,
+            "limit": limit,
+            "offset": offset,
+            "results": [],
+            "total_results": 0,
+        }
+
+
+def register_firerag_tools(mcp: FastMCP) -> None:
+    """Register the firerag tool with the FastMCP server."""
+
+    @mcp.tool(
         name="firerag",
-        description="Perform semantic vector search with optional LLM synthesis for Q&A. Search the vector database using natural language queries with advanced filtering and configurable response modes."
+        description="Perform semantic vector search over your Firecrawl vector database and return high-similarity document chunks with optional filters and pagination.",
+        annotations={
+            "title": "Vector Search",
+            "readOnlyHint": True,       # Only searches stored data
+            "destructiveHint": False,
+            "openWorldHint": False,
+            "idempotentHint": True
+        }
     )
     async def firerag(
         ctx: Context,
@@ -62,7 +315,7 @@ def register_firerag_tools(mcp_instance):
             ge=0
         ),
         threshold: float | None = Field(
-            default=0.7,
+            default=None,
             description="Minimum similarity threshold for results (0.0-1.0)",
             ge=0.0,
             le=1.0
@@ -100,43 +353,49 @@ def register_firerag_tools(mcp_instance):
             default=None,
             description="Filter results until this date (ISO format: YYYY-MM-DD)"
         ),
-        # LLM synthesis configuration
-        synthesis_mode: Annotated[Literal["raw", "synthesis", "hybrid"], Field(
-            description="Response mode: 'raw' returns raw chunks, 'synthesis' returns LLM-synthesized answer, 'hybrid' returns both"
-        )] = "synthesis",
-        llm_provider: Annotated[Literal["openai", "ollama"] | None, Field(
-            description="LLM provider for synthesis. Auto-detected if not specified"
-        )] = None,
-        llm_model: Annotated[str | None, Field(
-            description="Model name for synthesis. Uses provider defaults if not specified"
-        )] = None,
-        llm_temperature: Annotated[float | None, Field(
-            description="Temperature for LLM synthesis",
-            ge=0.0,
-            le=2.0
-        )] = 0.1,
-        llm_max_tokens: Annotated[int | None, Field(
-            description="Maximum tokens for LLM synthesis",
-            ge=50,
-            le=4000
-        )] = 1000,
-        llm_system_prompt: Annotated[str | None, Field(
-            description="Custom system prompt for synthesis. Uses default if not specified"
-        )] = None
-    ) -> FireRAGRawResponse | FireRAGSynthesisResponse:
+        # Response size management
+        max_response_tokens: int = Field(
+            default=20000,
+            description="Maximum response tokens to stay under MCP 25k limit",
+            ge=1000,
+            le=24000
+        ),
+        auto_optimize: bool = Field(
+            default=True,
+            description="Automatically optimize large responses"
+        ),
+        # Advanced pagination
+        auto_paginate: bool = Field(
+            default=False,
+            description="Fetch multiple pages automatically"
+        ),
+        max_pages: int | None = Field(
+            default=None,
+            description="Limit pagination API calls",
+            ge=1,
+            le=20
+        ),
+        max_results: int | None = Field(
+            default=None,
+            description="Stop when enough results collected",
+            ge=1,
+            le=1000
+        )
+    ) -> dict[str, Any]:
         """
-        Perform semantic vector search with optional LLM synthesis.
-        
+        Perform semantic vector search against stored Firecrawl embeddings.
+
         This tool searches the vector database using natural language queries,
-        applies comprehensive filtering, and optionally synthesizes results
-        using configured LLM providers (OpenAI/Ollama).
-        
+        applies comprehensive filtering, and returns the matching chunks along
+        with metadata. Optional pagination and response-size optimization help
+        keep responses within MCP transport limits.
+
         Args:
             ctx: FastMCP context for logging and progress reporting
             query: Natural language search query
             limit: Maximum number of results to return
             offset: Number of results to skip (pagination)
-            threshold: Minimum similarity score (0.0-1.0)
+            threshold: Minimum similarity score (0.0-1.0). Defaults to the server configuration
             include_content: Whether to include full content
             domain: Filter by domain
             repository: Filter by repository name
@@ -145,38 +404,27 @@ def register_firerag_tools(mcp_instance):
             content_type: Filter by content type
             date_from: Start date filter (ISO format)
             date_to: End date filter (ISO format)
-            synthesis_mode: Response mode for LLM synthesis
-            llm_provider: LLM provider for synthesis
-            llm_model: Model name for synthesis
-            llm_temperature: Temperature for LLM synthesis
-            llm_max_tokens: Maximum tokens for LLM synthesis
-            llm_system_prompt: Custom system prompt for synthesis
-            
+            max_response_tokens: Maximum response tokens to stay under MCP limit
+            auto_optimize: Automatically optimize large responses
+            auto_paginate: Fetch multiple pages automatically
+            max_pages: Limit pagination API calls
+            max_results: Stop when enough results collected
+
         Returns:
-            VectorSearchData for raw mode, or dict with vector data and synthesis for synthesis/hybrid modes
-            
+            Dictionary payload containing vector search data and applied filters
+
         Raises:
-            ToolError: If vector search fails or LLM synthesis encounters errors
+            ToolError: If vector search fails
         """
         try:
             await ctx.info(f"Starting FireRAG vector search for query: '{query}'")
 
-            # Build synthesis configuration
-            rag_config = {
-                "mode": synthesis_mode,
-                "llm_provider": llm_provider,
-                "model": llm_model,
-                "temperature": llm_temperature,
-                "max_tokens": llm_max_tokens,
-                "system_prompt": llm_system_prompt
-            }
-
             # Build filters
             filters = None
-            filter_params = {}
+            filter_params: dict[str, Any] = {}
 
             if any([domain, repository, repository_org, repository_full_name, content_type, date_from, date_to]):
-                filter_dict = {}
+                filter_dict: dict[str, Any] = {}
 
                 if domain:
                     filter_dict["domain"] = domain
@@ -199,7 +447,7 @@ def register_firerag_tools(mcp_instance):
                     filter_params["content_type"] = content_type
 
                 if date_from or date_to:
-                    date_range = {}
+                    date_range: dict[str, str] = {}
                     if date_from:
                         date_range["from"] = date_from
                         filter_params["date_from"] = date_from
@@ -220,241 +468,115 @@ def register_firerag_tools(mcp_instance):
                 filters=filters
             )
 
-            # Get Firecrawl client and perform vector search
             client = get_firecrawl_client()
 
             await ctx.info("Performing vector similarity search...")
-            search_start_time = ctx.request_id  # Use request_id as timing marker
+
+            # Prepare search parameters for potential pagination
+            search_params: dict[str, Any] = {
+                "query": search_request.query,
+                "limit": search_request.limit,
+                "offset": search_request.offset,
+                "include_content": search_request.include_content
+            }
+            if search_request.threshold is not None:
+                search_params["threshold"] = search_request.threshold
+
+            # Add filters if present
+            if search_request.filters:
+                search_params["filters"] = search_request.filters.model_dump(exclude_none=True)
 
             try:
-                search_response = client.vector_search(search_request)
+                if auto_paginate:
+                    await ctx.info("Auto-pagination enabled, fetching multiple pages...")
+                    pagination_config = {
+                        "max_pages": max_pages or 10,
+                        "max_results": max_results
+                    }
+
+                    all_results, pagination_metadata = await paginate_vector_search(
+                        client, search_params, pagination_config, ctx
+                    )
+
+                    vector_data = type('VectorSearchData', (), {
+                        'results': all_results,
+                        'total': len(all_results),
+                        'query': search_request.query,
+                        'limit': search_request.limit,
+                        'offset': search_request.offset,
+                        'threshold': search_params.get("threshold"),
+                        'pagination': pagination_metadata
+                    })()
+
+                    await ctx.info(
+                        f"Pagination complete: {pagination_metadata['pages_fetched']} pages, {len(all_results)} total results"
+                    )
+                else:
+                    vector_data = client.vector_search(**search_params)
+
             except FirecrawlError as e:
                 await ctx.error(f"Vector search failed: {e}")
-                handle_firecrawl_error(e, "vector search")
+                raise handle_firecrawl_error(e, "vector search")
 
-            if not search_response.success or not search_response.data:
+            if not vector_data or not hasattr(vector_data, 'results'):
                 raise ToolError("Vector search returned no results or failed")
 
-            vector_data = search_response.data
-            await ctx.info(f"Found {len(vector_data.results)} results with similarity >= {threshold}")
+            applied_threshold = getattr(vector_data, 'threshold', search_request.threshold)
+            await ctx.info(
+                f"Vector search completed: {len(vector_data.results)} results (effective threshold: {applied_threshold})"
+            )
 
-            # For raw mode, return SDK VectorSearchData directly
-            if rag_config["mode"] == "raw":
-                await ctx.info("FireRAG search complete. Mode: raw")
-                return vector_data
+            optimization_metadata = None
 
-            # For synthesis/hybrid modes, return structured dict with SDK data + synthesis
-            response_data = {
-                "query": query,
-                "mode": rag_config["mode"],
-                "vector_search_data": vector_data,  # Include full SDK VectorSearchData
-                "filters_applied": filter_params
-            }
-
-            # Handle LLM synthesis if requested
-            if rag_config["mode"] in ["synthesis", "hybrid"] and vector_data.results:
-                await ctx.info("Performing LLM synthesis of search results...")
-
-                synthesis_result = await _perform_llm_synthesis(
-                    ctx, query, vector_data.results, rag_config
+            if auto_optimize:
+                estimated_tokens = estimate_response_tokens(vector_data)
+                await ctx.info(
+                    f"Estimated response tokens: {estimated_tokens} (limit: {max_response_tokens})"
                 )
 
-                response_data.update({
-                    "synthesis": synthesis_result["answer"],
-                    "synthesis_model": synthesis_result["model"],
-                    "synthesis_tokens": synthesis_result["tokens"],
-                    "synthesis_timing": synthesis_result["timing"]
-                })
+                if estimated_tokens > max_response_tokens:
+                    await ctx.info("Response too large, applying optimizations...")
 
-            await ctx.info(f"FireRAG search complete. Mode: {rag_config['mode']}")
+                    optimized_data, optimization_metadata = optimize_response_size(
+                        vector_data,
+                        max_response_tokens,
+                        estimated_tokens,
+                        limit or 10
+                    )
 
-            return response_data
+                    vector_data = optimized_data
+                    await ctx.info(
+                        "Optimization complete: "
+                        f"level {optimization_metadata['optimization_level']}"
+                        f", actions {optimization_metadata['actions_taken']}"
+                    )
+
+            response_payload = _serialize_vector_data(
+                vector_data,
+                query,
+                search_request.limit,
+                search_request.offset
+            )
+
+            response_payload["result_count"] = len(response_payload.get("results", []))
+            response_payload["filters_applied"] = filter_params
+
+            if optimization_metadata:
+                response_payload["optimization_metadata"] = optimization_metadata
+
+            if hasattr(vector_data, 'pagination'):
+                response_payload["pagination_metadata"] = getattr(vector_data, 'pagination')
+
+            await ctx.info("FireRAG search complete")
+
+            return response_payload
 
         except FirecrawlError as e:
             await ctx.error(f"Firecrawl API error in FireRAG: {e}")
-            handle_firecrawl_error(e, "FireRAG vector search")
+            raise handle_firecrawl_error(e, "FireRAG vector search")
         except Exception as e:
             await ctx.error(f"Unexpected error in FireRAG: {e}")
             raise ToolError(f"FireRAG search failed: {e!s}")
-
-
-async def _perform_llm_synthesis(
-    ctx: Context,
-    query: str,
-    results: list[VectorSearchResult],
-    config: dict[str, Any]
-) -> dict[str, Any]:
-    """
-    Perform LLM synthesis of vector search results.
-    
-    Args:
-        ctx: FastMCP context
-        query: Original search query
-        results: Vector search results to synthesize
-        config: LLM synthesis configuration
-        
-    Returns:
-        Dictionary with synthesis result, model info, and timing
-        
-    Raises:
-        ToolError: If synthesis fails
-    """
-    try:
-        # Build context from search results
-        context_chunks = []
-        for i, result in enumerate(results[:10], 1):  # Limit to top 10 for synthesis
-            content = result.content or result.title or "No content available"
-            source = result.metadata.get("sourceURL", result.url)
-            context_chunks.append(f"[{i}] {content[:500]}... (Source: {source})")
-
-        context_text = "\n\n".join(context_chunks)
-
-        # Build system prompt
-        system_prompt = config["system_prompt"] or _get_default_system_prompt()
-
-        # Build user prompt
-        user_prompt = f"""
-Query: {query}
-
-Context from vector search results:
-{context_text}
-
-Please provide a comprehensive answer to the query based on the context provided above. 
-Include specific references to the sources where relevant information was found.
-"""
-
-        # Attempt synthesis using available methods
-        synthesis_start = 0  # Placeholder for timing
-
-        # Try using FastMCP's sampling capability first
-        try:
-            sample_result = await ctx.sample(
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-                max_tokens=config["max_tokens"]
-            )
-
-            if sample_result and hasattr(sample_result, 'text'):
-                return {
-                    "answer": sample_result.text,
-                    "model": "mcp_client_llm",
-                    "tokens": len(sample_result.text.split()) * 1.3,  # Rough estimate
-                    "timing": {"synthesis_ms": 0}  # Timing not available from sample
-                }
-        except Exception as e:
-            await ctx.warning(f"MCP client LLM synthesis failed: {e}")
-
-        # Fallback: Try OpenAI if configured
-        if config["llm_provider"] == "openai" or not config["llm_provider"]:
-            try:
-                import os
-
-                import openai
-
-                api_key = os.getenv("OPENAI_API_KEY")
-                if api_key:
-                    client = openai.OpenAI(api_key=api_key)
-
-                    response = client.chat.completions.create(
-                        model=config["model"] or "gpt-3.5-turbo",
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        temperature=config["temperature"],
-                        max_tokens=config["max_tokens"]
-                    )
-
-                    return {
-                        "answer": response.choices[0].message.content,
-                        "model": response.model,
-                        "tokens": response.usage.total_tokens if response.usage else None,
-                        "timing": {"synthesis_ms": 0}
-                    }
-            except Exception as e:
-                await ctx.warning(f"OpenAI synthesis failed: {e}")
-
-        # Fallback: Try Ollama if configured
-        if config["llm_provider"] == "ollama" or not config["llm_provider"]:
-            try:
-                import os
-
-                import httpx
-
-                ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-                model = config["model"] or "llama2"
-
-                async with httpx.AsyncClient() as client:
-                    response = await client.post(
-                        f"{ollama_url}/api/generate",
-                        json={
-                            "model": model,
-                            "prompt": f"{system_prompt}\n\nUser: {user_prompt}\n\nAssistant:",
-                            "stream": False,
-                            "options": {
-                                "temperature": config["temperature"],
-                                "num_predict": config["max_tokens"]
-                            }
-                        },
-                        timeout=60.0
-                    )
-
-                    if response.status_code == 200:
-                        result = response.json()
-                        return {
-                            "answer": result.get("response", ""),
-                            "model": model,
-                            "tokens": len(result.get("response", "").split()) * 1.3,
-                            "timing": {"synthesis_ms": 0}
-                        }
-            except Exception as e:
-                await ctx.warning(f"Ollama synthesis failed: {e}")
-
-        # Final fallback: Return a basic summary
-        await ctx.warning("LLM synthesis unavailable, returning summary of results")
-
-        summary_parts = [f"Found {len(results)} relevant results for query: {query}\n"]
-
-        for i, result in enumerate(results[:5], 1):
-            title = result.title or "Untitled"
-            source = result.metadata.get("sourceURL", result.url)
-            similarity = f"{result.similarity:.3f}"
-            summary_parts.append(f"{i}. {title} (similarity: {similarity}) - {source}")
-
-        if len(results) > 5:
-            summary_parts.append(f"... and {len(results) - 5} more results")
-
-        return {
-            "answer": "\n".join(summary_parts),
-            "model": "summary_fallback",
-            "tokens": len(" ".join(summary_parts).split()),
-            "timing": {"synthesis_ms": 0}
-        }
-
-    except Exception as e:
-        raise ToolError(f"LLM synthesis failed: {e!s}")
-
-
-def _get_default_system_prompt() -> str:
-    """Get the default system prompt for LLM synthesis."""
-    return """You are a helpful AI assistant that answers questions based on provided context from vector search results.
-
-Your task is to:
-1. Analyze the provided context from vector search results
-2. Answer the user's query comprehensively using the relevant information
-3. Include specific references to sources when citing information
-4. If the context doesn't contain enough information to answer the query, clearly state this
-5. Provide clear, well-structured responses that directly address the query
-
-Guidelines:
-- Only use information from the provided context
-- Be accurate and avoid speculation
-- Cite sources using the provided URLs when referencing specific information
-- If conflicting information exists, note this and explain the differences
-- Keep responses concise but comprehensive"""
-
-
-    return ["firerag"]
 
 
 # Export the registration function

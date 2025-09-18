@@ -1604,6 +1604,7 @@ export type VectorSearchResponse =
         limit: number;
         offset: number;
         threshold: number;
+        thresholdHistory?: number[];
         timing: {
           queryEmbeddingMs: number;
           vectorSearchMs: number;

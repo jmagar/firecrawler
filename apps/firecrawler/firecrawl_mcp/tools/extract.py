@@ -9,7 +9,7 @@ comprehensive error handling.
 import logging
 from typing import Annotated, Any
 
-from fastmcp import Context
+from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from firecrawl.v2.types import AgentOptions, ExtractResponse, ScrapeOptions
 from firecrawl.v2.utils.error_handler import FirecrawlError
@@ -21,12 +21,19 @@ from ..core.exceptions import handle_firecrawl_error
 logger = logging.getLogger(__name__)
 
 
-def register_extract_tools(mcp_instance):
-    """Register extract tool with the FastMCP server instance."""
+def register_extract_tools(mcp: FastMCP) -> None:
+    """Register extract tool with the FastMCP server."""
 
-    @mcp_instance.tool(
+    @mcp.tool(
         name="extract",
-        description="Extract structured data from URLs using AI/LLM with customizable prompts and schemas for precise data extraction."
+        description="Extract structured data from URLs using AI/LLM with customizable prompts and schemas for precise data extraction.",
+        annotations={
+            "title": "AI Data Extractor",
+            "readOnlyHint": False,      # Initiates extraction jobs
+            "destructiveHint": False,   # Safe - only extracts data
+            "openWorldHint": True,      # Accesses external websites
+            "idempotentHint": False     # AI extraction may vary
+        }
     )
     async def extract(
         ctx: Context,
@@ -191,9 +198,16 @@ def register_extract_tools(mcp_instance):
             await ctx.error(error_msg)
             raise ToolError(error_msg) from e
 
-    @mcp_instance.tool(
+    @mcp.tool(
         name="extract_status",
-        description="Check the status of an AI extraction job and retrieve results when completed."
+        description="Check the status of an AI extraction job and retrieve results when completed.",
+        annotations={
+            "title": "Extraction Status Checker",
+            "readOnlyHint": True,       # Only checks status
+            "destructiveHint": False,   # Safe status checking
+            "openWorldHint": True,      # Accesses Firecrawl API
+            "idempotentHint": True      # Status checks are repeatable
+        }
     )
     async def extract_status(
         ctx: Context,

@@ -58,6 +58,7 @@ def vector_search(
             limit=data.get("limit", 10),
             offset=data.get("offset", 0),
             threshold=data.get("threshold", 0.7),
+            threshold_history=data.get("thresholdHistory"),
             timing=timing
         )
 

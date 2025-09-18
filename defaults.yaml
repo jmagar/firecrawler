@@ -25,3 +25,6 @@ search:
 
 features:
   vectorStorage: true
+
+embeddings:
+  minSimilarityThreshold: 0.6

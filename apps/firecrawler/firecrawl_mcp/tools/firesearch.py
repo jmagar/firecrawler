@@ -9,7 +9,7 @@ and flexible result formatting following FastMCP patterns.
 import logging
 from typing import Annotated
 
-from fastmcp import Context
+from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from firecrawl.v2.types import ScrapeOptions, SearchData
 from firecrawl.v2.utils.error_handler import FirecrawlError
@@ -21,12 +21,19 @@ from ..core.exceptions import handle_firecrawl_error
 logger = logging.getLogger(__name__)
 
 
-def register_firesearch_tools(mcp_instance):
-    """Register the firesearch tool with the FastMCP server instance."""
+def register_firesearch_tools(mcp: FastMCP) -> None:
+    """Register the firesearch tool with the FastMCP server."""
 
-    @mcp_instance.tool(
+    @mcp.tool(
         name="firesearch",
-        description="Search the web for information with optional content extraction. Returns search results from multiple sources (web, news, images) with optional full content scraping."
+        description="Search the web for information with optional content extraction. Returns search results from multiple sources (web, news, images) with optional full content scraping.",
+        annotations={
+            "title": "Web Search Engine",
+            "readOnlyHint": True,       # Only searches, doesn't modify
+            "destructiveHint": False,   # Safe search operation
+            "openWorldHint": True,      # Searches external web
+            "idempotentHint": False     # Search results may change over time
+        }
     )
     async def firesearch(
         ctx: Context,

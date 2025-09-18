@@ -819,6 +819,7 @@ class VectorSearchData(BaseModel):
     limit: int
     offset: int
     threshold: float
+    threshold_history: Optional[List[float]] = None
     timing: VectorSearchTiming
 
 class VectorSearchResponse(BaseResponse[VectorSearchData]):

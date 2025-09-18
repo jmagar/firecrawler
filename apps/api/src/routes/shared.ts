@@ -324,6 +324,8 @@ function extractRouteType(path: string): string | null {
       return "crawl";
     case "search":
       return "search";
+    case "vector-search":
+      return "vector-search";
     case "extract":
       return "extract";
     case "batch-scrape":
@@ -373,6 +375,17 @@ function extractRouteConfig(
           routeDefaults.lang = config.language.location.languages[0];
         }
       }
+      if (config.embeddings?.minSimilarityThreshold !== undefined) {
+        routeDefaults.threshold = config.embeddings.minSimilarityThreshold;
+      }
+      break;
+    case "vector-search":
+      if (config.embeddings?.minSimilarityThreshold !== undefined) {
+        routeDefaults.threshold = config.embeddings.minSimilarityThreshold;
+      }
+      if (config.search?.limit !== undefined) {
+        routeDefaults.limit = config.search.limit;
+      }
       break;
 
     case "extract":
@@ -399,7 +412,8 @@ export function yamlConfigDefaultsMiddleware(
   next: NextFunction,
 ) {
   (async () => {
-    const routeType = extractRouteType(req.path);
+    const routeIdentifier = req.originalUrl || req.baseUrl || req.path;
+    const routeType = extractRouteType(routeIdentifier);
 
     // Initialize metadata for debugging
     req.yamlConfigMetadata = {
@@ -408,7 +422,14 @@ export function yamlConfigDefaultsMiddleware(
     };
 
     // Skip if we can't determine route type
-    if (!routeType) {
+    if (!routeType || routeType === "vector-search") {
+      logger.info(`YAML defaults skipped for route (${routeIdentifier})`, {
+        module: "yaml-config-defaults-middleware",
+        method: "yamlConfigDefaultsMiddleware",
+        path: req.path,
+        baseUrl: req.baseUrl,
+        originalUrl: req.originalUrl,
+      });
       return next();
     }
 
@@ -440,6 +461,17 @@ export function yamlConfigDefaultsMiddleware(
       // Extract route-specific defaults
       const routeDefaults = extractRouteConfig(rawConfig, routeType);
 
+      logger.info(
+        `Evaluated YAML defaults for route ${routeType} (${routeIdentifier})`,
+        {
+          module: "yaml-config-defaults-middleware",
+          method: "yamlConfigDefaultsMiddleware",
+          routeType,
+          routeIdentifier,
+          appliedKeys: Object.keys(routeDefaults),
+        },
+      );
+
       // Apply defaults if any exist
       if (Object.keys(routeDefaults).length > 0) {
         // Ensure request body exists
@@ -453,7 +485,7 @@ export function yamlConfigDefaultsMiddleware(
         req.yamlConfigMetadata.configApplied = true;
         req.yamlConfigMetadata.configSource = "yaml";
 
-        logger.info("Applied YAML configuration defaults", {
+        logger.info(`Applied YAML configuration defaults for ${routeType}`, {
           module: "yaml-config-defaults-middleware",
           method: "yamlConfigDefaultsMiddleware",
           routeType,

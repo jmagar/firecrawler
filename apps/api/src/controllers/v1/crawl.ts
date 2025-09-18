@@ -68,7 +68,7 @@ export async function crawlController(
   if (defaultLanguage && defaultLanguage.toLowerCase() !== "all") {
     try {
       const { getLanguageExcludePatterns } = await import(
-        "../../lib/language-filter"
+        "../../lib/language-filter.js"
       );
       const languageExcludePatterns =
         getLanguageExcludePatterns(defaultLanguage);

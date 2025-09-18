@@ -29,12 +29,65 @@ interface VectorSearchServiceOptions {
   logger?: Logger;
   costTracking?: CostTracking;
   teamId: string;
+  thresholdProvided?: boolean;
 }
 
 interface VectorSearchTiming {
   queryEmbeddingMs: number;
   vectorSearchMs: number;
   totalMs: number;
+}
+
+const DEFAULT_MIN_SIMILARITY_THRESHOLD = (() => {
+  const raw = process.env.MIN_SIMILARITY_THRESHOLD;
+  const parsed = raw ? parseFloat(raw) : NaN;
+
+  if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 1) {
+    return parsed;
+  }
+
+  return 0.7;
+})();
+
+function clampThreshold(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
+function buildThresholdCandidates(
+  requestThreshold: number | undefined | null,
+  thresholdProvided?: boolean,
+): number[] {
+  if (thresholdProvided && typeof requestThreshold === "number") {
+    return [clampThreshold(requestThreshold)];
+  }
+
+  const base = clampThreshold(
+    typeof requestThreshold === "number"
+      ? requestThreshold
+      : DEFAULT_MIN_SIMILARITY_THRESHOLD,
+  );
+
+  const candidates = [
+    base,
+    Math.max(base - 0.1, 0.55),
+    Math.max(base - 0.25, 0.4),
+    0.3,
+  ];
+
+  const unique: number[] = [];
+
+  for (const candidate of candidates) {
+    const clamped = clampThreshold(candidate);
+    if (unique.some(existing => Math.abs(existing - clamped) < 0.000001)) {
+      continue;
+    }
+    unique.push(clamped);
+  }
+
+  return unique;
 }
 
 /**
@@ -212,7 +265,7 @@ export async function vectorSearch(
   request: VectorSearchRequest,
   options: VectorSearchServiceOptions,
 ): Promise<VectorSearchResponse> {
-  const { logger = _logger } = options;
+  const { logger = _logger, thresholdProvided } = options;
   const startTime = Date.now();
   let queryEmbeddingTime = 0;
   let vectorSearchTime = 0;
@@ -244,13 +297,40 @@ export async function vectorSearch(
     }
 
     // Step 3: Perform vector similarity search
-    const searchStart = Date.now();
-    const vectorResults = await searchSimilarVectors(
-      queryEmbedding,
-      searchOptions,
-      logger,
+    const thresholdCandidates = buildThresholdCandidates(
+      request.threshold,
+      thresholdProvided,
     );
-    vectorSearchTime = Date.now() - searchStart;
+    const thresholdHistory: number[] = [];
+    let usedThreshold = thresholdCandidates[thresholdCandidates.length - 1];
+
+    logger.debug("Vector search threshold candidates", {
+      module: "vector_search",
+      method: "vectorSearch",
+      thresholdCandidates,
+      thresholdProvided,
+    });
+    let vectorResults: VectorSearchResult[] = [];
+
+    for (const candidateThreshold of thresholdCandidates) {
+      thresholdHistory.push(candidateThreshold);
+      searchOptions.minSimilarity = candidateThreshold;
+
+      const attemptStart = Date.now();
+      const attemptResults = await searchSimilarVectors(
+        queryEmbedding,
+        searchOptions,
+        logger,
+      );
+      vectorSearchTime += Date.now() - attemptStart;
+
+      vectorResults = attemptResults;
+      usedThreshold = candidateThreshold;
+
+      if (attemptResults.length > 0) {
+        break;
+      }
+    }
 
     // Step 4: Apply offset by slicing results
     const offsetResults =
@@ -273,6 +353,11 @@ export async function vectorSearch(
       totalMs: totalTime,
     };
 
+    const fallbackUsed =
+      thresholdHistory.length > 1 &&
+      !thresholdProvided &&
+      (vectorResults.length > 0 || usedThreshold !== thresholdHistory[0]);
+
     logger.info("Vector search completed successfully", {
       module: "vector_search/metrics",
       method: "vectorSearch",
@@ -281,12 +366,18 @@ export async function vectorSearch(
       returnedResults: apiResults.length,
       limit: request.limit,
       offset: request.offset,
-      threshold: request.threshold,
+      threshold: usedThreshold,
+      thresholdHistory,
+      fallbackUsed,
       timing,
     });
 
     // Calculate credits used (1 credit per search + 1 per result returned)
     const creditsUsed = 1 + apiResults.length;
+
+    const warning = fallbackUsed
+      ? `Vector search returned no results at similarity ≥ ${thresholdHistory[0]?.toFixed(2)}, so retried with a lower threshold (${usedThreshold.toFixed(2)}).`
+      : undefined;
 
     return {
       success: true,
@@ -296,10 +387,12 @@ export async function vectorSearch(
         totalResults: vectorResults.length, // Total results before pagination
         limit: request.limit,
         offset: request.offset,
-        threshold: request.threshold,
+        threshold: usedThreshold,
+        thresholdHistory,
         timing,
       },
       creditsUsed,
+      warning,
     };
   } catch (error) {
     const totalTime = Date.now() - startTime;

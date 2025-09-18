@@ -13,7 +13,7 @@ import { logger as _logger } from "../../lib/logger";
 import { generateCrawlerOptionsFromPrompt } from "../../scraper/scrapeURL/transformers/llmExtract";
 import { CostTracking } from "../../lib/cost-tracking";
 import { checkPermissions } from "../../lib/permissions";
-import { getLanguageExcludePatterns } from "../../lib/language-filter"; // removed .js extension
+import { getLanguageExcludePatterns } from "../../lib/language-filter.js";
 // Memoize language patterns to avoid recomputing on every request
 const __languageExcludeCache = new Map<string, string[]>();
 

@@ -13,6 +13,7 @@ import {
   vectorSearch,
   validateVectorSearchRequest,
 } from "../../search/v2/vector-search";
+import ConfigService from "../../services/config-service";
 import * as Sentry from "@sentry/node";
 import { logger as _logger } from "../../lib/logger";
 import type { Logger } from "winston";
@@ -46,7 +47,28 @@ export async function vectorSearchController(
 
   try {
     // Validate request using Zod schema
+    let thresholdProvided = Object.prototype.hasOwnProperty.call(
+      req.body ?? {},
+      "threshold",
+    );
+
     req.body = vectorSearchRequestSchema.parse(req.body);
+
+    if (!thresholdProvided) {
+      try {
+        const configService = await ConfigService;
+        const yamlConfig = await configService.getConfiguration();
+        const yamlThreshold = yamlConfig?.embeddings?.minSimilarityThreshold;
+        if (typeof yamlThreshold === "number") {
+          req.body.threshold = yamlThreshold;
+          thresholdProvided = true;
+        }
+      } catch (error) {
+        logger.debug("Failed to load YAML threshold override", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     logger = logger.child({
       query: req.body.query,
@@ -86,6 +108,7 @@ export async function vectorSearchController(
       logger,
       costTracking,
       teamId: req.auth.team_id,
+      thresholdProvided,
     });
 
     // Handle service-level errors

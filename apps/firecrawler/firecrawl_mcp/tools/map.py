@@ -8,7 +8,7 @@ from websites including sitemap parsing, subdomain exploration, and URL filterin
 import logging
 from typing import Annotated
 
-from fastmcp import Context
+from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from firecrawl.v2.types import Location, MapData, MapOptions
 from firecrawl.v2.utils.error_handler import FirecrawlError
@@ -20,12 +20,19 @@ from ..core.exceptions import handle_firecrawl_error
 logger = logging.getLogger(__name__)
 
 
-def register_map_tools(mcp_instance):
-    """Register map tool with the FastMCP server instance."""
+def register_map_tools(mcp: FastMCP) -> None:
+    """Register map tool with the FastMCP server."""
 
-    @mcp_instance.tool(
+    @mcp.tool(
         name="map",
-        description="Discover and map URLs from a website including sitemap parsing, subdomain exploration, and comprehensive URL discovery."
+        description="Discover and map URLs from a website including sitemap parsing, subdomain exploration, and comprehensive URL discovery.",
+        annotations={
+            "title": "Website URL Mapper",
+            "readOnlyHint": True,       # Only discovers URLs, doesn't modify
+            "destructiveHint": False,   # Safe discovery operation
+            "openWorldHint": True,      # Accesses external websites
+            "idempotentHint": True      # URL mapping should be consistent
+        }
     )
     async def map(
         ctx: Context,
