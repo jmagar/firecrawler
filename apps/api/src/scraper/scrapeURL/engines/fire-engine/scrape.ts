@@ -201,11 +201,23 @@ export async function fireEngineScrape<
   if (!status.content && status.docUrl) {
     const docId = parseDocIdFromDocUrl(status.docUrl);
     if (docId !== "") {
-      const doc = await getDocFromGCS(docId);
+      let doc = await getDocFromGCS(docId);
+      if (!doc) {
+        logger.debug("Doc not found in GCS for parsed docId", { docId });
+        // Try decoding the docId and retry
+        const decodedDocId = decodeURIComponent(docId);
+        if (decodedDocId !== docId) {
+          doc = await getDocFromGCS(decodedDocId);
+        }
+      }
       if (doc) {
         status = { ...status, ...doc };
         delete status.docUrl;
       }
+    } else {
+      logger.debug("Empty docId parsed from docUrl; skipping GCS fetch", {
+        docUrl: status.docUrl,
+      });
     }
   }
 

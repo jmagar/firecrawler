@@ -1,0 +1,71 @@
+INFO  2025-09-18 20:59:45,470 serena.cli:health_check:551 - Starting health check for project: /home/jmagar/compose/firecrawl
+INFO  2025-09-18 20:59:45,470 serena.cli:health_check:555 - Creating SerenaAgent with disabled dashboard...
+INFO  2025-09-18 20:59:45,485 serena.agent:__init__:204 - Starting Serena server (version=0.1.4-51dd4db9-dirty, process id=225426, parent process id=225386)
+INFO  2025-09-18 20:59:45,485 serena.agent:__init__:205 - Configuration file: None
+INFO  2025-09-18 20:59:45,485 serena.agent:__init__:206 - Available projects: 
+INFO  2025-09-18 20:59:45,485 serena.agent:__init__:207 - Loaded tools (36): read_file, create_text_file, list_dir, find_file, replace_regex, delete_lines, replace_lines, insert_at_line, search_for_pattern, restart_language_server, get_symbols_overview, find_symbol, find_referencing_symbols, replace_symbol_body, insert_after_symbol, insert_before_symbol, write_memory, read_memory, list_memories, delete_memory, execute_shell_command, activate_project, remove_project, switch_modes, get_current_config, check_onboarding_performed, onboarding, think_about_collected_information, think_about_task_adherence, think_about_whether_you_are_done, summarize_changes, prepare_for_new_conversation, initial_instructions, jet_brains_find_symbol, jet_brains_find_referencing_symbols, jet_brains_get_symbols_overview
+INFO  2025-09-18 20:59:45,485 serena.config.serena_config:apply:106 - SerenaAgentContext[name='desktop-app'] included 1 tools: switch_modes
+INFO  2025-09-18 20:59:45,486 serena.agent:__init__:221 - Number of exposed tools: 26
+INFO  2025-09-18 20:59:45,501 serena.agent:_update_active_tools:401 - Active tools (26): activate_project, check_onboarding_performed, create_text_file, delete_memory, execute_shell_command, find_file, find_referencing_symbols, find_symbol, get_current_config, get_symbols_overview, insert_after_symbol, insert_before_symbol, list_dir, list_memories, onboarding, prepare_for_new_conversation, read_file, read_memory, replace_regex, replace_symbol_body, search_for_pattern, switch_modes, think_about_collected_information, think_about_task_adherence, think_about_whether_you_are_done, write_memory
+INFO  2025-09-18 20:59:45,503 serena.util.file_system:start:329 - Loading of .gitignore files starting ...
+INFO  2025-09-18 20:59:45,503 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/.gitignore
+INFO  2025-09-18 20:59:45,504 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/.mypy_cache/.gitignore
+INFO  2025-09-18 20:59:45,504 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/.serena/.gitignore
+INFO  2025-09-18 20:59:45,505 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/apps/firecrawler/.gitignore
+INFO  2025-09-18 20:59:45,508 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/apps/python-sdk/.gitignore
+INFO  2025-09-18 20:59:45,508 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/apps/api/.gitignore
+INFO  2025-09-18 20:59:45,509 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/apps/firecrawler/.zen_venv/.gitignore
+INFO  2025-09-18 20:59:45,510 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/apps/python-sdk/.venv/.gitignore
+INFO  2025-09-18 20:59:45,511 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/apps/api/native/.gitignore
+INFO  2025-09-18 20:59:45,512 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/apps/ui/ingestion-ui/.gitignore
+INFO  2025-09-18 20:59:45,513 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/apps/js-sdk/firecrawl/.gitignore
+INFO  2025-09-18 20:59:45,518 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/apps/api/.husky/_/.gitignore
+INFO  2025-09-18 20:59:45,518 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/apps/api/sharedLibs/go-html-to-md/.gitignore
+INFO  2025-09-18 20:59:45,525 serena.util.file_system:_load_gitignore_files:143 - Processing .gitignore file: /home/jmagar/compose/firecrawl/apps/api/src/scraper/scrapeURL/.gitignore
+INFO  2025-09-18 20:59:45,535 serena.util.file_system:stop:336 - Loading of .gitignore files completed in 0.032 seconds
+INFO  2025-09-18 20:59:45,539 serena.agent:load_project_from_path_or_name:476 - Added new project firecrawl for path /home/jmagar/compose/firecrawl
+INFO  2025-09-18 20:59:45,539 serena.agent:_activate_project:441 - Activating firecrawl at /home/jmagar/compose/firecrawl
+INFO  2025-09-18 20:59:45,540 serena.agent:_update_active_tools:401 - Active tools (26): activate_project, check_onboarding_performed, create_text_file, delete_memory, execute_shell_command, find_file, find_referencing_symbols, find_symbol, get_current_config, get_symbols_overview, insert_after_symbol, insert_before_symbol, list_dir, list_memories, onboarding, prepare_for_new_conversation, read_file, read_memory, replace_regex, replace_symbol_body, search_for_pattern, switch_modes, think_about_collected_information, think_about_task_adherence, think_about_whether_you_are_done, write_memory
+INFO  2025-09-18 20:59:45,540 serena.agent:issue_task:420 - Scheduling Task-1[init_language_server]
+INFO  2025-09-18 20:59:45,540 serena.agent:start:329 - Task-1[init_language_server] starting ...
+INFO  2025-09-18 20:59:45,540 serena.cli:health_check:558 - SerenaAgent created successfully
+INFO  2025-09-18 20:59:45,540 serena.agent:start:329 - Language server initialization starting ...
+INFO  2025-09-18 20:59:45,540 serena.cli:health_check:561 - Searching for analyzable files...
+INFO  2025-09-18 20:59:45,540 serena.project:create_language_server:303 - Creating language server instance for /home/jmagar/compose/firecrawl.
+INFO  2025-09-18 20:59:45,656 serena.cli:health_check:570 - Found analyzable file: apps/test-suite/jest.config.js
+INFO  2025-09-18 20:59:45,657 serena.cli:health_check:588 - Testing GetSymbolsOverviewTool on file: apps/test-suite/jest.config.js
+INFO  2025-09-18 20:59:45,657 serena.agent:issue_task:420 - Scheduling Task-2[<lambda>]
+INFO  2025-09-18 20:59:45,754 solidlsp:load_cache:1553 - Loading document symbols cache from /home/jmagar/compose/firecrawl/.serena/cache/typescript/document_symbols_cache_v23-06-25.pkl
+INFO  2025-09-18 20:59:46,044 solidlsp:load_cache:1557 - Loaded 848 document symbols from cache.
+INFO  2025-09-18 20:59:46,049 serena.agent:reset_language_server:594 - Starting the language server for firecrawl
+INFO  2025-09-18 20:59:46,050 solidlsp:start:1599 - Starting language server with language typescript for /home/jmagar/compose/firecrawl
+INFO  2025-09-18 20:59:46,050 solidlsp:_start_server:224 - Starting TypeScript server process
+INFO  2025-09-18 20:59:46,050 solidlsp.ls_handler:start:189 - Starting language server process via command: ['/home/jmagar/.serena/language_servers/static/TypeScriptLanguageServer/ts-lsp/node_modules/.bin/typescript-language-server', '--stdio']
+INFO  2025-09-18 20:59:46,052 solidlsp:_start_server:228 - Sending initialize request from LSP client to LSP server and awaiting response
+INFO  2025-09-18 20:59:46,140 solidlsp:window_log_message:207 - LSP: window/logMessage: {"type": 3, "message": "Using Typescript version (bundled) 5.5.4 from path "/home/jmagar/.serena/language_servers/static/TypeScriptLanguageServer/ts-lsp/node_modules/typescript/lib/tsserver.js""}
+INFO  2025-09-18 20:59:47,140 solidlsp:_start_server:246 - Timeout waiting for TypeScript server to become ready, proceeding anyway
+INFO  2025-09-18 20:59:47,140 serena.agent:stop:336 - Language server initialization completed in 1.600 seconds
+INFO  2025-09-18 20:59:47,140 serena.agent:stop:336 - Task-1[init_language_server] completed in 1.601 seconds
+INFO  2025-09-18 20:59:47,141 serena.agent:start:329 - Task-2[<lambda>] starting ...
+INFO  2025-09-18 20:59:47,141 serena.agent:stop:336 - Task-2[<lambda>] completed in 0.001 seconds
+INFO  2025-09-18 20:59:47,142 serena.cli:health_check:591 - GetSymbolsOverviewTool returned 3 symbols
+INFO  2025-09-18 20:59:47,142 serena.cli:health_check:612 - No class or function found, using first available symbol
+INFO  2025-09-18 20:59:47,142 serena.cli:health_check:616 - Using symbol for testing: preset (kind: 7)
+INFO  2025-09-18 20:59:47,142 serena.cli:health_check:619 - Testing FindSymbolTool for symbol: preset
+INFO  2025-09-18 20:59:47,142 serena.agent:issue_task:420 - Scheduling Task-3[<lambda>]
+INFO  2025-09-18 20:59:47,142 serena.agent:start:329 - Task-3[<lambda>] starting ...
+INFO  2025-09-18 20:59:47,143 serena.agent:stop:336 - Task-3[<lambda>] completed in 0.001 seconds
+INFO  2025-09-18 20:59:47,143 serena.cli:health_check:624 - FindSymbolTool found 1 matches for symbol preset
+INFO  2025-09-18 20:59:47,143 serena.cli:health_check:627 - Testing FindReferencingSymbolsTool for symbol: preset
+INFO  2025-09-18 20:59:47,143 serena.agent:issue_task:420 - Scheduling Task-4[<lambda>]
+INFO  2025-09-18 20:59:47,143 serena.agent:start:329 - Task-4[<lambda>] starting ...
+INFO  2025-09-18 20:59:48,187 serena.agent:stop:336 - Task-4[<lambda>] completed in 1.044 seconds
+INFO  2025-09-18 20:59:48,187 serena.cli:health_check:631 - FindReferencingSymbolsTool found 0 references for symbol preset
+INFO  2025-09-18 20:59:48,188 serena.cli:health_check:637 - Testing SearchForPatternTool for pattern: preset
+INFO  2025-09-18 20:59:48,188 serena.agent:issue_task:420 - Scheduling Task-5[<lambda>]
+INFO  2025-09-18 20:59:48,188 serena.agent:start:329 - Task-5[<lambda>] starting ...
+INFO  2025-09-18 20:59:48,257 serena.text_utils:search_files:326 - Processing 424 files.
+INFO  2025-09-18 20:59:48,406 serena.text_utils:search_files:367 - Found 2 total matches across 424 files
+INFO  2025-09-18 20:59:48,406 serena.agent:stop:336 - Task-5[<lambda>] completed in 0.219 seconds
+INFO  2025-09-18 20:59:48,406 serena.cli:health_check:644 - SearchForPatternTool found 2 pattern matches for preset
+INFO  2025-09-18 20:59:48,407 serena.cli:health_check:658 - Health check completed successfully

@@ -36,6 +36,16 @@ describe("parseDocIdFromDocUrl", () => {
         "https://example.com/files/doc.txt?version=1&format=raw#section1";
       expect(parseDocIdFromDocUrl(url)).toBe("doc.txt");
     });
+
+    it("should handle URLs with redundant slashes", () => {
+      const url = "https://example.com//a//b///c.json";
+      expect(parseDocIdFromDocUrl(url)).toBe("c.json");
+    });
+
+    it("should extract doc ID from file:// URL", () => {
+      const url = "file:///var/tmp/report.txt";
+      expect(parseDocIdFromDocUrl(url)).toBe("report.txt");
+    });
   });
 
   describe("GS (Google Storage) URLs", () => {
@@ -46,6 +56,11 @@ describe("parseDocIdFromDocUrl", () => {
 
     it("should extract doc ID from gs:// URL with fragment", () => {
       const url = "gs://bucket/a/b/c.json#fragment";
+      expect(parseDocIdFromDocUrl(url)).toBe("c.json");
+    });
+
+    it("should extract doc ID from gs:// URL with query parameters", () => {
+      const url = "gs://bucket/a/b/c.json?sig=abc";
       expect(parseDocIdFromDocUrl(url)).toBe("c.json");
     });
   });
@@ -107,6 +122,11 @@ describe("parseDocIdFromDocUrl", () => {
     it("should handle URL with only fragment", () => {
       const url = "https://example.com/#fragment";
       expect(parseDocIdFromDocUrl(url)).toBe("");
+    });
+
+    it("should handle relative path-like strings", () => {
+      const url = "a/b/c.json";
+      expect(parseDocIdFromDocUrl(url)).toBe("c.json");
     });
   });
 

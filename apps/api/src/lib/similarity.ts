@@ -14,6 +14,13 @@ export function getDefaultMinSimilarityThreshold(): number {
     return parsed;
   }
 
+  // Log warning when invalid value is provided
+  if (raw !== undefined) {
+    console.warn(
+      `Invalid MIN_SIMILARITY_THRESHOLD value: "${raw}". Must be a number between 0 and 1. Using default: 0.7`,
+    );
+  }
+
   return 0.7;
 }
 

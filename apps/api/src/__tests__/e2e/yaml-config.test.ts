@@ -233,7 +233,7 @@ features:
 
   describe("YAML Configuration Precedence Tests", () => {
     it(
-      "YAML defaults override request body parameters",
+      "Request body parameters override YAML defaults",
       async () => {
         const configPath = path.join(tempConfigDir, "defaults.yaml");
         const yamlConfig = `

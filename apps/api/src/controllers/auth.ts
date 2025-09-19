@@ -143,16 +143,20 @@ const mockACUC: () => AuthCreditUsageChunk = () => ({
     planModifier: 0.1,
   },
   concurrency: (() => {
-    const defaultValue = 16;
+    const DEFAULT = 16;
+    const MAX_WORKERS_PER_QUEUE = Number.parseInt(
+      process.env.MAX_WORKERS_PER_QUEUE || "256",
+      10,
+    );
     const envValue = process.env.NUM_WORKERS_PER_QUEUE;
     if (!envValue || envValue.trim() === "") {
-      return defaultValue;
+      return DEFAULT;
     }
-    const parsed = parseInt(envValue, 10);
+    const parsed = Number.parseInt(envValue, 10);
     if (isNaN(parsed) || parsed <= 0) {
-      return defaultValue;
+      return DEFAULT;
     }
-    return Math.max(1, parsed);
+    return Math.max(1, Math.min(parsed, MAX_WORKERS_PER_QUEUE));
   })(),
   flags: null,
   is_extract: false,
@@ -219,8 +223,9 @@ export async function getACUC(
       retries++;
       if (retries === maxRetries) {
         throw new Error(
-          `Failed to retrieve authentication and credit usage data after ${maxRetries} attempts: ` +
-            JSON.stringify(error),
+          `Failed to retrieve authentication and credit usage data after ${maxRetries} attempts: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         );
       }
 
@@ -346,8 +351,9 @@ export async function getACUCTeam(
       retries++;
       if (retries === maxRetries) {
         throw new Error(
-          `Failed to retrieve authentication and credit usage data after ${maxRetries} attempts: ` +
-            JSON.stringify(error),
+          `Failed to retrieve authentication and credit usage data after ${maxRetries} attempts: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         );
       }
 

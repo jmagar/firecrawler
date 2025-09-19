@@ -31,7 +31,7 @@ export function getVectorDimension(): number {
   const vectorDimension = process.env.VECTOR_DIMENSION;
   if (!vectorDimension) {
     throw new Error(
-      "VECTOR_DIMENSION environment variable is required when vector storage is enabled. Set it to match your embedding model's output dimension (e.g., 1024 for Qwen/Qwen2.5-0.5B-Instruct, 384 for all-MiniLM-L6-v2).",
+      "VECTOR_DIMENSION environment variable is required. Set it to match your embedding model's output dimension (e.g., 1024 for Qwen/Qwen2.5-0.5B-Instruct, 384 for all-MiniLM-L6-v2).",
     );
   }
 
@@ -91,7 +91,9 @@ export function validateEmbeddingDimension(
   const actualDimension = embedding.length;
 
   if (actualDimension !== configuredDimension) {
-    const knownDimension = KNOWN_MODEL_DIMENSIONS[modelName];
+    const knownDimension =
+      KNOWN_MODEL_DIMENSIONS[modelName] ??
+      KNOWN_MODEL_DIMENSIONS[modelName.toLowerCase?.() ?? modelName];
     const providerInfo = provider ? ` (provider: ${provider})` : "";
 
     let remediation = "";
@@ -118,18 +120,14 @@ export function validateModelConfiguration(): {
   const teiUrl = process.env.TEI_URL;
   const openaiKey = process.env.OPENAI_API_KEY;
 
-  // If MODEL_EMBEDDING_NAME is not set, provide guidance
+  // If MODEL_EMBEDDING_NAME is not set, select a sensible default based on available creds
   if (!modelName) {
-    if (teiUrl && !openaiKey) {
+    if (!openaiKey && !teiUrl) {
       throw new Error(
-        "MODEL_EMBEDDING_NAME is required when using TEI. Set it to your TEI model name (e.g., 'sentence-transformers/all-MiniLM-L6-v2').\n\nExample configuration:\nMODEL_EMBEDDING_NAME=sentence-transformers/all-MiniLM-L6-v2\nVECTOR_DIMENSION=384\nTEI_URL=" +
-          teiUrl,
-      );
-    } else if (!openaiKey) {
-      throw new Error(
-        "Either MODEL_EMBEDDING_NAME or OPENAI_API_KEY must be set.\n\nFor TEI (self-hosted, recommended):\nTEI_URL=http://your-tei-service:8080\nMODEL_EMBEDDING_NAME=Qwen/Qwen2.5-0.5B-Instruct\nVECTOR_DIMENSION=1024\n\nFor OpenAI:\nOPENAI_API_KEY=your_key_here\nMODEL_EMBEDDING_NAME=text-embedding-3-small\nVECTOR_DIMENSION=1536",
+        "Either MODEL_EMBEDDING_NAME or one of OPENAI_API_KEY/TEI_URL must be set.",
       );
     }
+    // Prefer OpenAI when its key is present; otherwise TEI
   }
 
   // Determine provider based on MODEL_EMBEDDING_NAME
@@ -141,7 +139,9 @@ export function validateModelConfiguration(): {
   const isOpenAIModel =
     normalizedModelName?.startsWith("text-embedding-") ?? false;
 
-  let provider: "tei" | undefined = undefined;
+  // Default provider inference when model name is absent:
+  let provider: "tei" | undefined =
+    !modelName && teiUrl && !openaiKey ? "tei" : undefined;
 
   if (normalizedModelName) {
     if (isOpenAIModel) {
@@ -152,8 +152,12 @@ export function validateModelConfiguration(): {
       if (teiUrl) {
         provider = "tei";
       } else {
+        const hintDim =
+          (normalizedModelName &&
+            KNOWN_MODEL_DIMENSIONS[normalizedModelName]) ||
+          "<your model dimension>";
         throw new Error(
-          `Non-OpenAI embedding model '${normalizedModelName}' requires TEI_URL to be configured.\n\nFor TEI (self-hosted):\nTEI_URL=http://your-tei-service:8080\nMODEL_EMBEDDING_NAME=${normalizedModelName}\nVECTOR_DIMENSION=1024\n\nAlternatively, use an OpenAI model:\nOPENAI_API_KEY=your_key_here\nMODEL_EMBEDDING_NAME=text-embedding-3-small\nVECTOR_DIMENSION=1536`,
+          `Non-OpenAI embedding model '${normalizedModelName}' requires TEI_URL to be configured.\n\nFor TEI (self-hosted):\nTEI_URL=http://your-tei-service:8080\nMODEL_EMBEDDING_NAME=${normalizedModelName}\nVECTOR_DIMENSION=${hintDim}\n\nAlternatively, use an OpenAI model:\nOPENAI_API_KEY=your_key_here\nMODEL_EMBEDDING_NAME=text-embedding-3-small\nVECTOR_DIMENSION=1536`,
         );
       }
     }

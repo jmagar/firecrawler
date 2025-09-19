@@ -399,7 +399,7 @@ export function yamlConfigDefaultsMiddleware(
         serviceRoute as any,
       );
       if (!routeDefaults || Object.keys(routeDefaults).length === 0) {
-        logger.info(
+        logger.debug(
           `No configuration found for route ${routeType} (${routeIdentifier})`,
           {
             module: "yaml-config-defaults-middleware",
@@ -412,7 +412,7 @@ export function yamlConfigDefaultsMiddleware(
         return next();
       }
 
-      logger.info(
+      logger.debug(
         `Evaluated YAML defaults for route ${routeType} (${routeIdentifier})`,
         {
           module: "yaml-config-defaults-middleware",
@@ -452,7 +452,7 @@ export function yamlConfigDefaultsMiddleware(
       next();
     } catch (error) {
       // Log error but don't break request processing
-      logger.warn(
+      logger.debug(
         "Failed to load YAML configuration, continuing without defaults",
         {
           module: "yaml-config-defaults-middleware",

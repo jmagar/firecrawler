@@ -26,7 +26,6 @@ interface EnvironmentMapping {
     field: string;
     type: "string" | "number" | "boolean" | "array";
     comment?: string;
-    envVar?: boolean; // Whether to use ${ENV_VAR} syntax
   };
 }
 
@@ -38,77 +37,66 @@ const ENV_MAPPINGS: EnvironmentMapping = {
     field: "blockMedia",
     type: "boolean",
     comment: "Block media (audio/video) content",
-    envVar: true,
   },
   PROXY_SERVER: {
     section: "scraping",
     field: "proxy",
     type: "string",
     comment: "Proxy server configuration",
-    envVar: true,
   },
   ENABLE_VECTOR_STORAGE: {
     section: "features",
     field: "vectorStorage",
     type: "boolean",
     comment: "Enable vector storage for embeddings",
-    envVar: true,
   },
   USE_DB_AUTHENTICATION: {
     section: "features",
     field: "useDbAuthentication",
     type: "boolean",
     comment: "Enable database authentication",
-    envVar: true,
   },
   DEFAULT_CRAWL_LANGUAGE: {
     section: "language",
     field: "includeLangs",
     type: "array",
     comment: "Default language filtering for crawl operations",
-    envVar: true,
   },
   MODEL_EMBEDDING_NAME: {
     section: "embeddings",
     field: "model",
     type: "string",
     comment: "Embedding model to use",
-    envVar: true,
   },
   VECTOR_DIMENSION: {
     section: "embeddings",
     field: "dimension",
     type: "number",
     comment: "Vector dimension for embeddings",
-    envVar: true,
   },
   MAX_EMBEDDING_CONTENT_LENGTH: {
     section: "embeddings",
     field: "maxContentLength",
     type: "number",
     comment: "Maximum content length for embedding generation",
-    envVar: true,
   },
   MIN_SIMILARITY_THRESHOLD: {
     section: "embeddings",
     field: "minSimilarityThreshold",
     type: "number",
     comment: "Minimum similarity threshold for vector search",
-    envVar: true,
   },
   TEI_URL: {
     section: "embeddings",
     field: "teiUrl",
     type: "string",
     comment: "TEI service base URL",
-    envVar: true,
   },
   EMBEDDINGS_PROVIDER: {
     section: "embeddings",
     field: "provider",
     type: "string",
     comment: "Embedding provider (openai or tei)",
-    envVar: true,
   },
 };
 
@@ -229,11 +217,11 @@ ENVIRONMENT VARIABLES:
     
   Embeddings:
     MODEL_EMBEDDING_NAME     -> embeddings.model
+    EMBEDDINGS_PROVIDER      -> embeddings.provider
+    TEI_URL                  -> embeddings.teiUrl
     VECTOR_DIMENSION         -> embeddings.dimension
     MAX_EMBEDDING_CONTENT_LENGTH -> embeddings.maxContentLength
     MIN_SIMILARITY_THRESHOLD -> embeddings.minSimilarityThreshold
-    EMBEDDINGS_PROVIDER      -> embeddings.provider
-    TEI_URL                  -> embeddings.teiUrl
 
 MIGRATION:
   1. Run: npm run generate-config -- --output defaults.yaml
@@ -291,13 +279,8 @@ function generateConfigFromEnvironment(): YamlConfig {
       const section = config[mapping.section] as any;
 
       try {
-        if (mapping.envVar) {
-          // Use environment variable substitution syntax
-          section[mapping.field] = `\${${envVar}}`;
-        } else {
-          // Convert the actual value
-          section[mapping.field] = convertValue(envValue, mapping.type);
-        }
+        // Always convert environment values to proper types
+        section[mapping.field] = convertValue(envValue, mapping.type);
 
         sectionsWithValues.add(mapping.section);
       } catch (error) {

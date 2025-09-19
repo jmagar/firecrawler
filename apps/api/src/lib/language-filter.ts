@@ -268,5 +268,6 @@ export function getSupportedLanguages(): string[] {
  * @returns true if supported, false otherwise
  */
 export function isLanguageSupported(languageCode: string): boolean {
-  return SUPPORTED_LANGUAGE_SET.has(languageCode.toLowerCase());
+  const base = languageCode.toLowerCase().split(/[-_]/)[0];
+  return SUPPORTED_LANGUAGE_SET.has(base);
 }

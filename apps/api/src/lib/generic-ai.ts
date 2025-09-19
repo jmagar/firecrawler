@@ -25,7 +25,9 @@ type TextProvider = Exclude<Provider, "tei">;
 type EmbeddingProvider = "tei" | "openai" | "ollama";
 const defaultEmbeddingProvider: EmbeddingProvider = process.env.TEI_URL
   ? "tei"
-  : "openai";
+  : process.env.OLLAMA_BASE_URL
+    ? "ollama"
+    : "openai";
 
 const defaultTextProvider: TextProvider = process.env.OLLAMA_BASE_URL
   ? "ollama"
@@ -48,14 +50,17 @@ const providerList: Record<Provider, any> = {
   fireworks, //FIREWORKS_API_KEY
   deepinfra, //DEEPINFRA_API_KEY
   vertex: createVertex({
-    project: "firecrawl",
+    project: process.env.VERTEX_PROJECT || "firecrawl",
     //https://github.com/vercel/ai/issues/6644 bug
-    baseURL:
-      "https://aiplatform.googleapis.com/v1/projects/firecrawl/locations/global/publishers/google",
-    location: "global",
+    baseURL: `https://aiplatform.googleapis.com/v1/projects/${process.env.VERTEX_PROJECT || "firecrawl"}/locations/${process.env.VERTEX_LOCATION || "global"}/publishers/google`,
+    location: process.env.VERTEX_LOCATION || "global",
     googleAuthOptions: process.env.VERTEX_CREDENTIALS
       ? {
-          credentials: JSON.parse(atob(process.env.VERTEX_CREDENTIALS)),
+          credentials: JSON.parse(
+            Buffer.from(process.env.VERTEX_CREDENTIALS!, "base64").toString(
+              "utf8",
+            ),
+          ),
         }
       : {
           keyFile: "./gke-key.json",
@@ -80,6 +85,9 @@ export function getEmbeddingModel(
   name: string,
   provider: EmbeddingProvider = defaultEmbeddingProvider,
 ) {
+  if (typeof (providerList as any)[provider]?.embedding !== "function") {
+    throw new Error(`Embeddings not supported for provider: ${provider}`);
+  }
   return process.env.MODEL_EMBEDDING_NAME
     ? providerList[provider].embedding(process.env.MODEL_EMBEDDING_NAME)
     : providerList[provider].embedding(name);

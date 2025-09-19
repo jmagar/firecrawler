@@ -5,6 +5,8 @@
  * Designed for integration with both transformer pipeline and vector storage service.
  */
 
+import { parse as parseDomain } from "tldts";
+
 interface GitHubRepositoryMetadata {
   repository_org: string;
   repository_name: string;
@@ -164,7 +166,7 @@ function classifyContentType(
 
     // README detection
     if (
-      filename.match(/^readme\.(md|mdx|txt|rst|adoc)$/i) ||
+      filename.match(/^readme\.(md|mdx|txt|rst|adoc|org|textile)$/i) ||
       filename === "readme"
     ) {
       contentType = "readme";
@@ -309,19 +311,11 @@ function extractDomainMetadata(url: string): DomainMetadata {
   try {
     const urlObj = new URL(url);
     const hostname = urlObj.hostname.toLowerCase();
-    const parts = hostname.split(".");
 
-    let domain = hostname;
-    let subdomain: string | undefined;
-
-    // Extract main domain and subdomain
-    if (parts.length >= 3) {
-      // For domains like docs.example.com or api.github.com
-      subdomain = parts.slice(0, -2).join(".");
-      domain = parts.slice(-2).join(".");
-    } else if (parts.length === 2) {
-      domain = hostname;
-    }
+    // Use tldts for proper domain parsing, including multi-level TLDs
+    const parsed = parseDomain(hostname);
+    const domain = parsed.domain || hostname;
+    const subdomain = parsed.subdomain || undefined;
 
     // Detect if this is a documentation site
     let isDocumentationSite = false;
@@ -610,8 +604,38 @@ export function extractDocumentMetadata(
   // Extract file metadata if we have path information
   const filePathFromUrl = (() => {
     try {
-      const { pathname } = new URL(url);
+      const urlObj = new URL(url);
+      const { pathname, hostname } = urlObj;
       const parts = pathname.split("/").filter(Boolean);
+
+      // Enhanced GitHub URL fallback - preserve directory context
+      if (
+        (hostname === "github.com" ||
+          hostname === "raw.githubusercontent.com") &&
+        parts.length >= 2
+      ) {
+        const [org, repo, ...remainingParts] = parts;
+
+        // For raw.githubusercontent.com URLs: org/repo/branch/path...
+        if (
+          hostname === "raw.githubusercontent.com" &&
+          remainingParts.length >= 2
+        ) {
+          const [branch, ...fileParts] = remainingParts;
+          return fileParts.join("/");
+        }
+
+        // For github.com URLs with blob/tree: org/repo/blob|tree/branch/path...
+        if (
+          remainingParts.length >= 3 &&
+          (remainingParts[0] === "blob" || remainingParts[0] === "raw")
+        ) {
+          const [marker, branch, ...fileParts] = remainingParts;
+          return fileParts.join("/");
+        }
+      }
+
+      // Fallback to last segment for non-GitHub or simple URLs
       return parts.length ? parts[parts.length - 1] : undefined;
     } catch {
       return undefined;

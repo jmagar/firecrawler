@@ -2,6 +2,7 @@ import { Mutex } from "async-mutex";
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
+import chokidar, { FSWatcher } from "chokidar";
 import { logger } from "../lib/logger";
 
 interface ConfigCache {
@@ -26,7 +27,7 @@ class ConfigService {
 
   private configCache: ConfigCache | null = null;
   private fileWatcher: FileWatcher | null = null;
-  private watcher: fs.FSWatcher | null = null;
+  private watcher: FSWatcher | null = null;
   private configPath: string;
   private readonly cacheTTL: number = 30000; // 30 seconds
   private readonly watchDebounceDelay: number = 1000; // 1 second
@@ -117,61 +118,67 @@ class ConfigService {
 
       if (!this.fileWatcher.isWatching) {
         // Close existing watcher before creating new one
-        this.watcher?.close();
+        if (this.watcher) {
+          this.watcher.close();
+          this.watcher = null;
+        }
 
-        // Create new fs.watch watcher with proper options
-        this.watcher = fs.watch(
-          this.configPath,
-          {
-            persistent: true,
+        // Create new chokidar watcher with options for better atomic write handling
+        this.watcher = chokidar.watch(this.configPath, {
+          persistent: true,
+          ignoreInitial: true, // Don't trigger on initial scan
+          atomic: true, // Wait for write operations to complete
+          awaitWriteFinish: {
+            stabilityThreshold: 100, // Wait 100ms for file size to stabilize
+            pollInterval: 50, // Check every 50ms
           },
-          (eventType, filename) => {
-            // Handle both 'change' and 'rename' events
-            if (eventType === "change") {
-              this.handleFileChange();
-            } else if (eventType === "rename") {
-              // Rename indicates atomic replace - file might temporarily disappear
-              logger.info(
-                "Configuration file was renamed/replaced, handling atomic change",
-                {
-                  module: "config-service",
-                  method: "setupFileWatcher",
-                  configPath: this.configPath,
-                  eventType,
-                  filename,
-                },
-              );
+          usePolling: false, // Use native fs events when possible
+          alwaysStat: false, // Don't always stat files for better performance
+        });
 
-              // Wait briefly and check if file exists, then re-setup watcher
-              setTimeout(() => {
-                if (fs.existsSync(this.configPath)) {
-                  this.handleFileChange();
-                  // Re-establish watcher if file was replaced
-                  this.fileWatcher!.isWatching = false;
-                  this.setupFileWatcher();
-                } else {
-                  logger.info(
-                    "Configuration file was deleted, clearing cache",
-                    {
-                      module: "config-service",
-                      method: "setupFileWatcher",
-                      configPath: this.configPath,
-                    },
-                  );
-                  this.configCache = null;
-                }
-              }, 100);
-            }
-          },
-        );
+        // Handle file changes
+        this.watcher.on("change", (filePath: string) => {
+          logger.debug("Configuration file changed", {
+            module: "config-service",
+            method: "setupFileWatcher",
+            configPath: this.configPath,
+            changedPath: filePath,
+          });
+          this.handleFileChange();
+        });
+
+        // Handle atomic replacements (common with editors and atomic writes)
+        this.watcher.on("add", (filePath: string) => {
+          logger.info(
+            "Configuration file was added/replaced, handling atomic change",
+            {
+              module: "config-service",
+              method: "setupFileWatcher",
+              configPath: this.configPath,
+              addedPath: filePath,
+            },
+          );
+          this.handleFileChange();
+        });
+
+        // Handle file deletion
+        this.watcher.on("unlink", (filePath: string) => {
+          logger.info("Configuration file was deleted, clearing cache", {
+            module: "config-service",
+            method: "setupFileWatcher",
+            configPath: this.configPath,
+            deletedPath: filePath,
+          });
+          this.configCache = null;
+        });
 
         // Handle watcher errors
-        this.watcher.on("error", error => {
+        this.watcher.on("error", (error: Error) => {
           logger.warn("File watcher error, recreating watcher", {
             module: "config-service",
             method: "setupFileWatcher",
             configPath: this.configPath,
-            error: error instanceof Error ? error.message : String(error),
+            error: error.message,
           });
 
           // Recreate the watcher after a delay
@@ -183,13 +190,16 @@ class ConfigService {
           }, 1000);
         });
 
-        this.fileWatcher.isWatching = true;
-
-        logger.debug("File watcher setup successfully with fs.watch", {
-          module: "config-service",
-          method: "setupFileWatcher",
-          configPath: this.configPath,
+        // Handle when watcher is ready
+        this.watcher.on("ready", () => {
+          logger.debug("File watcher setup successfully with chokidar", {
+            module: "config-service",
+            method: "setupFileWatcher",
+            configPath: this.configPath,
+          });
         });
+
+        this.fileWatcher.isWatching = true;
       }
     } catch (error) {
       logger.warn("Failed to setup file watcher for config file", {
@@ -482,7 +492,7 @@ class ConfigService {
     });
   }
 
-  public shutdown(): void {
+  public async shutdown(): Promise<void> {
     if (this.watchTimeout) {
       clearTimeout(this.watchTimeout);
       this.watchTimeout = null;
@@ -490,7 +500,7 @@ class ConfigService {
 
     if (this.watcher) {
       try {
-        this.watcher.close();
+        await this.watcher.close();
         this.watcher = null;
         if (this.fileWatcher) {
           this.fileWatcher.isWatching = false;

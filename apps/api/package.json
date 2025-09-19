@@ -35,6 +35,9 @@
   },
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=18.18"
+  },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
     "@types/body-parser": "^1.19.2",

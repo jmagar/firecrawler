@@ -136,7 +136,7 @@ export async function crawlController(
         const duplicatesRemoved = merged.length - deduped.length;
         if (
           !finalCrawlerOptions.regexOnFullURL &&
-          languageExcludePatterns.some(p => p.includes("://"))
+          languageExcludePatterns.some(p => p.startsWith("^(?:https?:)?//"))
         ) {
           finalCrawlerOptions.regexOnFullURL = true;
           logger.debug(
@@ -148,7 +148,6 @@ export async function crawlController(
           languageFilterSource: "env_default",
           existingExcludePatternsCount: existingExcludePaths.length,
           addedExcludePatternsCount: languageExcludePatterns.length,
-          patternsAdded: languageExcludePatterns.length,
           totalExcludePatterns: finalCrawlerOptions.excludePaths.length,
           duplicatesRemoved,
           regexOnFullURL: finalCrawlerOptions.regexOnFullURL === true,

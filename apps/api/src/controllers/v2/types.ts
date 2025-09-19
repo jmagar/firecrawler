@@ -1532,6 +1532,15 @@ export const vectorSearchRequestSchema = z
       })
       .refine(
         data => {
+          /**
+           * Repository Filter Validation Rules:
+           * 1. Cannot use repositoryFullName with separate repository/repositoryOrg fields simultaneously
+           * 2. When using separate fields, both repository AND repositoryOrg must be provided together
+           * 3. Single repository field without repositoryOrg is ambiguous and not allowed
+           *
+           * Note: Storage-side normalization in apps/api/src/services/vector-storage.ts
+           * ensures case-insensitive matching works correctly for all repository filters.
+           */
           // Prevent ambiguous repository filtering
           const hasRepoFullName = !!data.repositoryFullName;
           const hasRepoFields = !!(data.repository || data.repositoryOrg);

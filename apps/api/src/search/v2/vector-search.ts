@@ -67,11 +67,16 @@ function buildThresholdCandidates(
     0.3,
   ];
 
+  // Use a more reliable epsilon for floating-point comparison
+  // Number.EPSILON * 10 provides better precision than hardcoded values
+  const THRESHOLD_EPSILON = Number.EPSILON * 10;
   const unique: number[] = [];
 
   for (const candidate of candidates) {
     const clamped = clampThreshold(candidate);
-    if (unique.some(existing => Math.abs(existing - clamped) < 0.000001)) {
+    if (
+      unique.some(existing => Math.abs(existing - clamped) < THRESHOLD_EPSILON)
+    ) {
       continue;
     }
     unique.push(clamped);

@@ -315,8 +315,9 @@ async function getMapResults({
   }
 
   // Apply automatic language filtering if DEFAULT_CRAWL_LANGUAGE is set
-  const defaultLanguage = process.env.DEFAULT_CRAWL_LANGUAGE;
-  if (defaultLanguage && defaultLanguage.toLowerCase() !== "all") {
+  const rawLang = process.env.DEFAULT_CRAWL_LANGUAGE ?? "";
+  const defaultLanguage = rawLang.trim().toLowerCase();
+  if (defaultLanguage && defaultLanguage !== "all") {
     try {
       const urlList = mapResults.map(x => x.url);
       const { included, excluded } = filterUrlsByLanguage(
