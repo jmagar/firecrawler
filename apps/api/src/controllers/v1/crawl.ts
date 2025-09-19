@@ -12,6 +12,7 @@ import { _addScrapeJobToBullMQ } from "../../services/queue-jobs";
 import { logger as _logger } from "../../lib/logger";
 import { fromV1ScrapeOptions } from "../v2/types";
 import { checkPermissions } from "../../lib/permissions";
+import { normalizeLanguage } from "../../lib/strings";
 
 export async function crawlController(
   req: RequestWithAuth<{}, CrawlResponse, CrawlRequest>,
@@ -65,7 +66,7 @@ export async function crawlController(
 
   // Apply automatic language filtering if DEFAULT_CRAWL_LANGUAGE is set
   const defaultLanguage = process.env.DEFAULT_CRAWL_LANGUAGE;
-  if (defaultLanguage && defaultLanguage.toLowerCase() !== "all") {
+  if (defaultLanguage && normalizeLanguage(defaultLanguage) !== "all") {
     try {
       const { getLanguageExcludePatterns } = await import(
         "../../lib/language-filter.js"

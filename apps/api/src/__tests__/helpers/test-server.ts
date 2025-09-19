@@ -11,6 +11,7 @@ export interface TestEchoServer {
 export async function createTestEchoServer(): Promise<TestEchoServer> {
   const app = express();
   app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
   // Echo headers endpoint (mimics httpbin.org/headers)
   app.get("/headers", (req, res) => {
@@ -61,6 +62,10 @@ export async function createTestEchoServer(): Promise<TestEchoServer> {
             new Promise(resolveClose => {
               server.close(() => resolveClose());
             }),
+        });
+      } else {
+        server.close(() => {
+          reject(new Error("Test server failed to obtain a TCP address"));
         });
       }
     });

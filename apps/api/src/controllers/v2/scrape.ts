@@ -15,6 +15,7 @@ import { TransportableError } from "../../lib/error";
 import { scrapeQueue } from "../../services/worker/nuq";
 import { checkPermissions } from "../../lib/permissions";
 import { shouldExcludeUrl } from "../../lib/language-filter.js";
+import { normalizeLanguage } from "../../lib/strings";
 
 export async function scrapeController(
   req: RequestWithAuth<{}, ScrapeResponse, ScrapeRequest>,
@@ -150,7 +151,7 @@ export async function scrapeController(
   const defaultLanguage = process.env.DEFAULT_CRAWL_LANGUAGE;
   let languageMismatchWarning: string | undefined;
 
-  if (defaultLanguage && defaultLanguage.toLowerCase() !== "all") {
+  if (defaultLanguage && normalizeLanguage(defaultLanguage) !== "all") {
     try {
       if (shouldExcludeUrl(req.body.url, defaultLanguage)) {
         languageMismatchWarning = `URL may contain content in a language other than '${defaultLanguage}'. Consider reviewing the content language or adjusting the DEFAULT_CRAWL_LANGUAGE setting.`;

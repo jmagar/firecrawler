@@ -46,7 +46,9 @@ interface DocumentMetadata {
 /**
  * Extracts GitHub repository information from URL
  */
-function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | null {
+export function extractGitHubMetadata(
+  url: string,
+): GitHubRepositoryMetadata | null {
   try {
     const urlObj = new URL(url);
 
@@ -122,7 +124,12 @@ function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | null {
             branchVersion = afterMarker.slice(0, idx).join("/");
             filePath = afterMarker.slice(idx).join("/");
             fileExtension = filePath.split(".").pop()?.toLowerCase();
+          } else if (remainingParts[0] === "blob" && afterMarker.length >= 2) {
+            // Handle extensionless files under /blob/:ref/...
+            branchVersion = afterMarker[0];
+            filePath = afterMarker.slice(1).join("/");
           } else {
+            // tree URLs without a file-like segment
             branchVersion = afterMarker.join("/");
           }
         }
@@ -148,7 +155,7 @@ function extractGitHubMetadata(url: string): GitHubRepositoryMetadata | null {
 /**
  * Detects content type based on URL patterns and content analysis
  */
-function classifyContentType(
+export function classifyContentType(
   url: string,
   content?: string,
 ): ContentTypeClassification {
@@ -445,7 +452,11 @@ function detectProgrammingLanguage(
 
     if (lowerContent.includes("def ") && lowerContent.includes("import "))
       return "python";
-    if (lowerContent.includes("interface ") && lowerContent.includes("type "))
+    if (
+      /\binterface\s+\w+/.test(lowerContent) ||
+      /\btype\s+\w+\s*=/.test(lowerContent) ||
+      /\benum\s+\w+/.test(lowerContent)
+    )
       return "typescript";
     if (lowerContent.includes("function ") && lowerContent.includes("const "))
       return "javascript";
@@ -642,6 +653,12 @@ export function extractDocumentMetadata(
     }
   })();
   const filePath = githubMetadata?.file_path || filePathFromUrl;
+  const effectiveGithub = githubMetadata
+    ? {
+        ...githubMetadata,
+        file_path: githubMetadata.file_path ?? filePathFromUrl,
+      }
+    : undefined;
   if (filePath) {
     const isCode = isCodeFile(filePath, content);
     const programmingLanguage = detectProgrammingLanguage(filePath, content);
@@ -661,7 +678,7 @@ export function extractDocumentMetadata(
     title,
     domain: domainMetadata.domain,
     word_count: wordCount,
-    github: githubMetadata || undefined,
+    github: effectiveGithub,
     content_classification: contentClassification,
     domain_metadata: domainMetadata,
     file_metadata: fileMetadata,

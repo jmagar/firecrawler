@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { protocolIncluded, checkUrl } from "../../lib/validateUrl";
+import {
+  url,
+  generateLLMsTextRequestSchema,
+  GenerateLLMsTextRequest,
+} from "../../shared/content-schemas";
 import { countries } from "../../lib/validate-country";
 import {
   ExtractorOptions,
@@ -28,45 +33,8 @@ type Format =
   | "changeTracking"
   | "embeddings";
 
-export const url = z.preprocess(
-  x => {
-    if (!protocolIncluded(x as string)) {
-      x = `http://${x}`;
-    }
-
-    // transforming the query parameters is breaking certain sites, so we're not doing it - mogery
-    // try {
-    //   const urlObj = new URL(x as string);
-    //   if (urlObj.search) {
-    //     const searchParams = new URLSearchParams(urlObj.search.substring(1));
-    //     return `${urlObj.origin}${urlObj.pathname}?${searchParams.toString()}`;
-    //   }
-    // } catch (e) {
-    // }
-
-    return x;
-  },
-  z
-    .string()
-    .url()
-    .regex(/^https?:\/\//i, "URL uses unsupported protocol")
-    .refine(
-      x =>
-        /(\.[a-zA-Z0-9-\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F]{2,}|\.xn--[a-zA-Z0-9-]{1,})(:\d+)?([\/?#]|$)/i.test(
-          x,
-        ),
-      "URL must have a valid top-level domain or be a valid path",
-    )
-    .refine(x => {
-      try {
-        checkUrl(x as string);
-        return true;
-      } catch (_) {
-        return false;
-      }
-    }, "Invalid URL"),
-  // .refine((x) => !isUrlBlocked(x as string), BLOCKLISTED_URL_MESSAGE),
-);
+// URL schema imported from shared module
+export { url, generateLLMsTextRequestSchema, GenerateLLMsTextRequest };
 
 const strictMessage =
   "Unrecognized key in body -- please review the v1 API documentation for request body changes";
@@ -1392,25 +1360,4 @@ export type TokenUsage = {
   model?: string;
 };
 
-export const generateLLMsTextRequestSchema = z.object({
-  url: url.describe("The URL to generate text from"),
-  maxUrls: z
-    .number()
-    .min(1)
-    .max(5000)
-    .default(10)
-    .describe("Maximum number of URLs to process"),
-  showFullText: z
-    .boolean()
-    .default(false)
-    .describe("Whether to show the full LLMs-full.txt in the response"),
-  cache: z
-    .boolean()
-    .default(true)
-    .describe("Whether to use cached content if available"),
-  __experimental_stream: z.boolean().optional(),
-});
-
-export type GenerateLLMsTextRequest = z.infer<
-  typeof generateLLMsTextRequestSchema
->;
+// generateLLMsTextRequestSchema and GenerateLLMsTextRequest imported from shared module

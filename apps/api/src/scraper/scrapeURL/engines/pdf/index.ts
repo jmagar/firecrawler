@@ -21,10 +21,7 @@ import {
   savePdfResultToCache,
 } from "../../../../lib/gcs-pdf-cache";
 import { AbortManagerThrownError } from "../../lib/abortManager";
-import {
-  shouldParsePDF,
-  getPDFMaxPages,
-} from "../../../../controllers/v2/types";
+import { shouldParsePDF, getPDFMaxPages } from "../../../../lib/pdf-utils";
 import { getPdfMetadata } from "@mendable/firecrawl-rs";
 
 type PDFProcessorResult = { html: string; markdown?: string };

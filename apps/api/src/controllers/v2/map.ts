@@ -319,11 +319,10 @@ async function getMapResults({
   const defaultLanguage = rawLang.trim().toLowerCase();
   if (defaultLanguage && defaultLanguage !== "all") {
     try {
+      // Normalize to base language for consistent filtering
+      const baseLang = defaultLanguage.split(/[-_]/)[0];
       const urlList = mapResults.map(x => x.url);
-      const { included, excluded } = filterUrlsByLanguage(
-        urlList,
-        defaultLanguage,
-      );
+      const { included, excluded } = filterUrlsByLanguage(urlList, baseLang);
 
       if (excluded.length > 0) {
         const includeSet = new Set(included);
@@ -331,6 +330,7 @@ async function getMapResults({
 
         logger.info("Applied automatic language filtering to map results", {
           allowedLanguage: defaultLanguage,
+          baseLang,
           originalCount: urlList.length,
           filteredCount: mapResults.length,
           excludedCount: excluded.length,

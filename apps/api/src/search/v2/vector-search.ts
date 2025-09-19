@@ -50,12 +50,16 @@ function buildThresholdCandidates(
   requestThreshold: number | undefined | null,
   thresholdProvided?: boolean,
 ): number[] {
-  if (thresholdProvided && typeof requestThreshold === "number") {
+  if (
+    thresholdProvided &&
+    typeof requestThreshold === "number" &&
+    Number.isFinite(requestThreshold)
+  ) {
     return [clampThreshold(requestThreshold)];
   }
 
   const base = clampThreshold(
-    typeof requestThreshold === "number"
+    typeof requestThreshold === "number" && Number.isFinite(requestThreshold)
       ? requestThreshold
       : DEFAULT_MIN_SIMILARITY_THRESHOLD,
   );
@@ -95,6 +99,9 @@ async function generateQueryEmbedding(
   const { logger = _logger, costTracking, teamId } = options;
   const start = Date.now();
 
+  // Task 1: Call getVectorDimension() once at function start
+  const configuredVectorDimension = getVectorDimension();
+
   try {
     // Validate model configuration early and get resolved model name and provider
     const { modelName: finalModelName, provider } =
@@ -106,7 +113,7 @@ async function generateQueryEmbedding(
       provider,
       model: finalModelName,
       queryLength: query.length,
-      configuredVectorDimension: getVectorDimension(),
+      configuredVectorDimension,
     });
 
     const { embedding } = await embed({
@@ -128,7 +135,7 @@ async function generateQueryEmbedding(
 
     // Track embedding costs if cost tracking is provided
     if (costTracking) {
-      // Auto-detect language from query for better token estimation
+      // Estimate embedding cost for the query
       const cost = calculateEmbeddingCost(finalModelName, query);
 
       costTracking.addCall({
@@ -154,13 +161,14 @@ async function generateQueryEmbedding(
       provider,
       model: finalModelName,
       embeddingDimension: embedding.length,
-      configuredVectorDimension: getVectorDimension(),
+      configuredVectorDimension,
       dimensionValidated: true,
     });
 
     return embedding;
   } catch (error) {
     const duration = Date.now() - start;
+    // Task 3: Log detailed error locally
     logger.error("Failed to generate query embedding", {
       module: "vector_search",
       method: "generateQueryEmbedding",
@@ -168,9 +176,8 @@ async function generateQueryEmbedding(
       duration,
       queryLength: query.length,
     });
-    throw new Error(
-      `Failed to generate query embedding: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    // Task 3: Throw generic error without internal details
+    throw new Error("Failed to generate query embedding");
   }
 }
 
@@ -238,9 +245,9 @@ function transformResults(
           ? INTERNAL_TO_API_CONTENT_TYPE[result.metadata.content_type] ||
             result.metadata.content_type
           : undefined,
-        wordCount: result.metadata.token_count
+        approxWordCount: result.metadata.token_count
           ? Math.floor(result.metadata.token_count * 0.75)
-          : undefined, // Convert tokens to approximate words
+          : undefined, // Approximate words = floor(token_count * 0.75)
       },
     };
 
@@ -269,7 +276,8 @@ export async function vectorSearch(
     logger.info("Starting vector search", {
       module: "vector_search",
       method: "vectorSearch",
-      query: request.query,
+      // Do not log raw queries
+      queryLength: request.query?.length,
       limit: request.limit,
       offset: request.offset,
       threshold: request.threshold,
@@ -356,7 +364,8 @@ export async function vectorSearch(
     logger.info("Vector search completed successfully", {
       module: "vector_search/metrics",
       method: "vectorSearch",
-      query: request.query,
+      // Do not log raw queries
+      queryLength: request.query?.length,
       totalResults: vectorResults.length,
       returnedResults: apiResults.length,
       limit: request.limit,
@@ -403,14 +412,15 @@ export async function vectorSearch(
       module: "vector_search",
       method: "vectorSearch",
       error: error instanceof Error ? error.message : String(error),
-      query: request.query,
+      // Do not log raw queries
+      queryLength: request.query?.length,
       timing,
     });
 
     // Return error response
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Vector search failed",
+      error: "Vector search failed",
     };
   }
 }
@@ -431,21 +441,46 @@ export function validateVectorSearchRequest(
     errors.push("Query cannot exceed 1000 characters");
   }
 
-  if (request.limit && (request.limit < 1 || request.limit > 100)) {
+  if (
+    request.limit !== undefined &&
+    request.limit !== null &&
+    (!Number.isInteger(request.limit) ||
+      request.limit < 1 ||
+      request.limit > 100)
+  ) {
     errors.push("Limit must be between 1 and 100");
   }
 
-  if (request.offset && request.offset < 0) {
+  if (
+    request.offset !== undefined &&
+    request.offset !== null &&
+    (!Number.isInteger(request.offset) || request.offset < 0)
+  ) {
     errors.push("Offset cannot be negative");
   }
 
-  if (request.threshold && (request.threshold < 0 || request.threshold > 1)) {
+  if (
+    request.threshold !== undefined &&
+    request.threshold !== null &&
+    (!Number.isFinite(request.threshold) ||
+      request.threshold < 0 ||
+      request.threshold > 1)
+  ) {
     errors.push("Threshold must be between 0 and 1");
   }
 
   if (request.filters?.dateRange) {
     const { from, to } = request.filters.dateRange;
-    if (from && to && new Date(from) > new Date(to)) {
+    const fromTime = from ? Date.parse(from) : NaN;
+    const toTime = to ? Date.parse(to) : NaN;
+    if ((from && Number.isNaN(fromTime)) || (to && Number.isNaN(toTime))) {
+      errors.push("Date range 'from'/'to' must be valid ISO-8601 dates");
+    }
+    if (
+      Number.isFinite(fromTime) &&
+      Number.isFinite(toTime) &&
+      fromTime > toTime
+    ) {
       errors.push("Date range 'from' cannot be after 'to'");
     }
   }

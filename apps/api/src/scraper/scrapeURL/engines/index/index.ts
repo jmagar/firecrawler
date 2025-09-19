@@ -15,7 +15,7 @@ import {
   addDomainFrequencyJob,
 } from "../../../../services";
 import { EngineError, IndexMissError } from "../../error";
-import { shouldParsePDF } from "../../../../controllers/v2/types";
+import { shouldParsePDF } from "../../../../lib/pdf-utils";
 import { storage } from "../../../../lib/gcs-jobs";
 
 export async function sendDocumentToIndex(meta: Meta, document: Document) {

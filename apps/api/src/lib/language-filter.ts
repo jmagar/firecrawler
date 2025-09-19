@@ -262,6 +262,18 @@ export function getSupportedLanguages(): string[] {
 }
 
 /**
+ * Clears the language pattern cache for better cache management in tests
+ *
+ * @param langBase - Optional base language to clear specific entry, clears all if not provided
+ */
+export function clearLanguagePatternCache(langBase?: string): void {
+  if (!langBase) {
+    return PATTERN_CACHE.clear();
+  }
+  PATTERN_CACHE.delete(langBase.toLowerCase().split(/[-_]/)[0].trim());
+}
+
+/**
  * Checks if a language code is supported
  *
  * @param languageCode - Language code to check

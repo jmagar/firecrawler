@@ -249,10 +249,22 @@ class ConfigService {
     return value;
   }
 
-  private substituteEnvInString(str: string): string {
+  private coerceScalar(v: any): any {
+    if (typeof v !== "string") return v;
+    const s = v.trim().toLowerCase();
+    if (s === "true") return true;
+    if (s === "false") return false;
+    if (/^-?\d+(\.\d+)?$/.test(s)) {
+      const n = Number(v);
+      if (Number.isFinite(n)) return n;
+    }
+    return v;
+  }
+
+  private substituteEnvInString(str: string): any {
     const envVarRegex = /\$\{([^}]+)\}/g;
 
-    return str.replace(envVarRegex, (match, expression) => {
+    const result = str.replace(envVarRegex, (match, expression) => {
       const parsed = this.parseEnvironmentExpression(expression);
       const envValue = process.env[parsed.variable];
 
@@ -270,6 +282,8 @@ class ConfigService {
         return match; // Return original if no substitution possible
       }
     });
+
+    return this.coerceScalar(result);
   }
 
   private parseEnvironmentExpression(

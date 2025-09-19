@@ -16,7 +16,7 @@ import {
 import { indexMaxReasonableTime, scrapeURLWithIndex } from "./index/index";
 import { useIndex } from "../../../services";
 import { hasFormatOfType } from "../../../lib/format-utils";
-import { getPDFMaxPages, shouldParsePDF } from "../../../controllers/v2/types";
+import { getPDFMaxPages, shouldParsePDF } from "../../../lib/pdf-utils";
 import { PdfMetadata } from "@mendable/firecrawl-rs";
 
 export type Engine =
@@ -543,9 +543,19 @@ export function buildFallbackList(meta: Meta): {
     }
   }
 
+  const mustKeep = new Set<Engine>();
+  if (
+    meta.featureFlags.has("pdf") ||
+    (meta.options.parsers && shouldParsePDF(meta.options.parsers))
+  ) {
+    mustKeep.add("pdf");
+  }
+  if (meta.featureFlags.has("docx")) {
+    mustKeep.add("docx");
+  }
   if (selectedEngines.some(x => engineOptions[x.engine].quality > 0)) {
     selectedEngines = selectedEngines.filter(
-      x => engineOptions[x.engine].quality > 0,
+      x => engineOptions[x.engine].quality > 0 || mustKeep.has(x.engine),
     );
   }
 

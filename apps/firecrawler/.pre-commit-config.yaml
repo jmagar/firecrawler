@@ -7,17 +7,17 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
     hooks:
-      # Run the linter
+      # Run the formatter first
+      - id: ruff-format
+        name: ruff-format
+        description: "Run Ruff formatter"
+        types_or: [python, pyi]
+        
+      # Run the linter after formatting
       - id: ruff
         name: ruff-lint
         description: "Run Ruff linter"
         args: ["--fix", "--exit-non-zero-on-fix"]
-        types_or: [python, pyi]
-        
-      # Run the formatter
-      - id: ruff-format
-        name: ruff-format
-        description: "Run Ruff formatter"
         types_or: [python, pyi]
 
   # MyPy for static type checking
@@ -31,12 +31,12 @@ repos:
         exclude: ^apps/firecrawler/firecrawl_mcp/tests/
         pass_filenames: false
         additional_dependencies:
-          - fastmcp>=2.12.2
-          - pydantic>=2.0
-          - httpx
-          - python-dotenv
-          - structlog
-          - types-requests
+          - fastmcp==2.2.1
+          - pydantic==2.11.3
+          - httpx==0.28.1
+          - python-dotenv==1.1.1
+          - structlog==25.4.0
+          - types-requests==2.32.4.20250913
         args:
           - --config-file=pyproject.toml
           - --cache-dir=.cache/mypy

@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { protocolIncluded, checkUrl } from "../../lib/validateUrl";
+import {
+  url,
+  generateLLMsTextRequestSchema,
+  GenerateLLMsTextRequest,
+} from "../../shared/content-schemas";
 import { countries } from "../../lib/validate-country";
 import {
   ExtractorOptions,
@@ -20,46 +25,13 @@ import Ajv from "ajv";
 import { integrationSchema } from "../../utils/integration";
 import { webhookSchema } from "../../services/webhook/schema";
 import { API_CONTENT_TYPES } from "../../shared/content-types";
+import { shouldParsePDF, getPDFMaxPages } from "../../lib/pdf-utils";
 
-export const url = z.preprocess(
-  x => {
-    if (!protocolIncluded(x as string)) {
-      x = `http://${x}`;
-    }
+// URL schema imported from shared module
+export { url, generateLLMsTextRequestSchema, GenerateLLMsTextRequest };
 
-    // transforming the query parameters is breaking certain sites, so we're not doing it - mogery
-    // try {
-    //   const urlObj = new URL(x as string);
-    //   if (urlObj.search) {
-    //     const searchParams = new URLSearchParams(urlObj.search.substring(1));
-    //     return `${urlObj.origin}${urlObj.pathname}?${searchParams.toString()}`;
-    //   }
-    // } catch (e) {
-    // }
-
-    return x;
-  },
-  z
-    .string()
-    .url()
-    .regex(/^https?:\/\//i, "URL uses unsupported protocol")
-    .refine(
-      x =>
-        /(\.[a-zA-Z0-9-\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F]{2,}|\.xn--[a-zA-Z0-9-]{1,})(:\d+)?([\/?#]|$)/i.test(
-          x,
-        ),
-      "URL must have a valid top-level domain or be a valid path",
-    )
-    .refine(x => {
-      try {
-        checkUrl(x as string);
-        return true;
-      } catch (_) {
-        return false;
-      }
-    }, "Invalid URL"),
-  // .refine((x) => !isUrlBlocked(x as string), BLOCKLISTED_URL_MESSAGE),
-);
+// Re-export PDF utils for backward compatibility
+export { shouldParsePDF, getPDFMaxPages };
 
 const strictMessage =
   "Unrecognized key in body -- please review the v2 API documentation for request body changes";
@@ -255,31 +227,6 @@ const parsersSchema = z
   .default(["pdf"]);
 
 type Parsers = z.infer<typeof parsersSchema>;
-
-export function shouldParsePDF(parsers?: Parsers): boolean {
-  if (!parsers) return true;
-  return parsers.some(parser => {
-    if (parser === "pdf") return true;
-    if (typeof parser === "object" && parser !== null && "type" in parser) {
-      return (parser as any).type === "pdf";
-    }
-    return false;
-  });
-}
-
-export function getPDFMaxPages(parsers?: Parsers): number | undefined {
-  if (!parsers) return undefined;
-  const pdfParser = parsers.find(parser => {
-    if (typeof parser === "object" && parser !== null && "type" in parser) {
-      return (parser as any).type === "pdf";
-    }
-    return false;
-  });
-  if (pdfParser && typeof pdfParser === "object" && "maxPages" in pdfParser) {
-    return (pdfParser as any).maxPages;
-  }
-  return undefined;
-}
 
 function transformIframeSelector(selector: string): string {
   return selector.replace(/(?:^|[\s,])iframe(?=\s|$|[.#\[:,])/g, match => {
@@ -1563,7 +1510,7 @@ export const vectorSearchRequestSchema = z
         },
         {
           message:
-            "Use either 'repositoryFullName' (org/repo) OR both 'repository' and 'repositoryOrg' together. Single 'repository' field is ambiguous.",
+            "Use either 'repositoryFullName' (org/repo) OR both 'repository' and 'repositoryOrg' together. Supplying only one of the pair is not allowed.",
         },
       )
       .transform(data => {
@@ -1614,7 +1561,7 @@ export type VectorSearchResult = {
     filePath?: string;
     branchVersion?: string;
     contentType?: string;
-    wordCount?: number;
+    approxWordCount?: number;
     [key: string]: any;
   };
 };
@@ -1641,25 +1588,4 @@ export type VectorSearchResponse =
       warning?: string;
     };
 
-export const generateLLMsTextRequestSchema = z.object({
-  url: url.describe("The URL to generate text from"),
-  maxUrls: z
-    .number()
-    .min(1)
-    .max(5000)
-    .default(10)
-    .describe("Maximum number of URLs to process"),
-  showFullText: z
-    .boolean()
-    .default(false)
-    .describe("Whether to show the full LLMs-full.txt in the response"),
-  cache: z
-    .boolean()
-    .default(true)
-    .describe("Whether to use cached content if available"),
-  __experimental_stream: z.boolean().optional(),
-});
-
-export type GenerateLLMsTextRequest = z.infer<
-  typeof generateLLMsTextRequestSchema
->;
+// generateLLMsTextRequestSchema and GenerateLLMsTextRequest imported from shared module

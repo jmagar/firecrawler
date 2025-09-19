@@ -51,7 +51,7 @@ const providerList: Record<Provider, any> = {
   deepinfra, //DEEPINFRA_API_KEY
   vertex: createVertex({
     project: process.env.VERTEX_PROJECT || "firecrawl",
-    //https://github.com/vercel/ai/issues/6644 bug
+    // https://github.com/vercel/ai/issues/6644 bug
     baseURL: `https://aiplatform.googleapis.com/v1/projects/${process.env.VERTEX_PROJECT || "firecrawl"}/locations/${process.env.VERTEX_LOCATION || "global"}/publishers/google`,
     location: process.env.VERTEX_LOCATION || "global",
     googleAuthOptions: process.env.VERTEX_CREDENTIALS
@@ -62,9 +62,9 @@ const providerList: Record<Provider, any> = {
             ),
           ),
         }
-      : {
-          keyFile: "./gke-key.json",
-        },
+      : process.env.GOOGLE_APPLICATION_CREDENTIALS
+        ? { keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS }
+        : {}, // rely on ADC (workload identity / metadata server)
   }),
   tei: createTEI({
     baseURL: process.env.TEI_URL || "http://localhost:8080",
@@ -86,7 +86,11 @@ export function getEmbeddingModel(
   provider: EmbeddingProvider = defaultEmbeddingProvider,
 ) {
   if (typeof (providerList as any)[provider]?.embedding !== "function") {
-    throw new Error(`Embeddings not supported for provider: ${provider}`);
+    const supported = ["tei", "openai", "ollama"].join(", ");
+    throw new Error(
+      `Embeddings not supported for provider: ${provider}. Supported embedding providers: ${supported}.` +
+        ` Check env (TEI_URL, OLLAMA_BASE_URL, OPENAI_API_KEY).`,
+    );
   }
   return process.env.MODEL_EMBEDDING_NAME
     ? providerList[provider].embedding(process.env.MODEL_EMBEDDING_NAME)

@@ -1,10 +1,6 @@
 import { InternalOptions } from "../scraper/scrapeURL";
-import {
-  Document,
-  ScrapeOptions,
-  TeamFlags,
-  shouldParsePDF,
-} from "../controllers/v2/types";
+import { Document, ScrapeOptions, TeamFlags } from "../controllers/v2/types";
+import { shouldParsePDF } from "./pdf-utils";
 import { CostTracking } from "./cost-tracking";
 import { hasFormatOfType } from "./format-utils";
 

@@ -119,11 +119,15 @@ export async function crawlController(
   let __langPatternSet: Set<string> | null = null;
   if (defaultLanguage && defaultLanguage !== "all") {
     try {
+      // Extract base language for cache key to avoid duplicates (e.g., "en-US" -> "en")
+      const cacheKey = defaultLanguage
+        ? defaultLanguage.split(/[-_]/)[0]
+        : undefined;
       const languageExcludePatterns =
-        __languageExcludeCache.get(defaultLanguage) ||
+        __languageExcludeCache.get(cacheKey!) ||
         getLanguageExcludePatterns(defaultLanguage);
-      if (!__languageExcludeCache.has(defaultLanguage)) {
-        __languageExcludeCache.set(defaultLanguage, languageExcludePatterns);
+      if (!__languageExcludeCache.has(cacheKey!)) {
+        __languageExcludeCache.set(cacheKey!, languageExcludePatterns);
       }
       if (languageExcludePatterns.length > 0) {
         // Store generated patterns to avoid recompiling during validation

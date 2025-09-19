@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import { logger } from "../lib/logger";
+import { normalizeLanguage } from "../lib/strings";
 
 interface CliArgs {
   output?: string;
@@ -239,8 +240,16 @@ function convertValue(
   type: "string" | "number" | "boolean" | "array",
 ): any {
   switch (type) {
-    case "boolean":
-      return value.toLowerCase() === "true";
+    case "boolean": {
+      const trimmed = value.trim().toLowerCase();
+      if (["true", "1", "yes", "y"].includes(trimmed)) {
+        return true;
+      }
+      if (["false", "0", "no", "n"].includes(trimmed)) {
+        return false;
+      }
+      return false; // Default to false for other values
+    }
     case "number": {
       const num = Number(value);
       if (isNaN(num)) {
@@ -249,7 +258,7 @@ function convertValue(
       return num;
     }
     case "array": {
-      if (value === "all" || value === "") {
+      if (normalizeLanguage(value) === "all" || value === "") {
         return [];
       }
       return value

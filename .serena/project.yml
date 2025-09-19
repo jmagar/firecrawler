@@ -3,11 +3,11 @@
 #  * For JavaScript, use typescript
 # Special requirements:
 #  * csharp: Requires the presence of a .sln file in the project folder.
-language: typescript, python
+language: typescript
 
 # whether to use the project's gitignore file to ignore files
 # Added on 2025-04-07
-ignore_all_files_in_gitignore: true
+ignore_all_files_in_gitignore: false
 # list of additional paths to ignore
 # same syntax as gitignore, so you can use * and **
 # Was previously called `ignored_dirs`, please update your config if you are using that.
@@ -60,8 +60,22 @@ read_only: false
 #  * `write_memory`: Writes a named memory (for future reference) to Serena's project-specific memory store.
 excluded_tools: []
 
-# initial prompt for the project. It will always be given to the LLM upon activating the project
-# (contrary to the memories, which are loaded on demand).
-initial_prompt: ""
+included_optional_tools: [
+  delete_lines,
+  insert_at_line,
+  replace_lines,
+  create_text_file,
+  summarize_changes,
+  switch_modes,
+  get_current_config,
+  prepare_for_new_conversation,
+  replace_regex,
+]
+# initial prompt for the project. It will always be given to the LLM upon 
+# activating the project (contrary to the memories, which are loaded on 
+# demand).
+initial_prompt: |
+  # Firecrawl Serena defaults
+  # (add project-specific guidance here)
 
 project_name: "firecrawl"
