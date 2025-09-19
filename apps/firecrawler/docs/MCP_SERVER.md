@@ -18,8 +18,9 @@ cd apps/firecrawler
 uv pip install -e .
 
 # 3. Configure environment
-cp .env.example .env
-# Edit .env with your settings
+# Environment is now configured in the root .env file
+# Edit /home/jmagar/compose/firecrawl/.env with your settings
+# Optional: Create .env.local for local overrides
 
 # 4. Start development server
 fastmcp dev firecrawl_mcp.server

@@ -12,13 +12,27 @@ from pathlib import Path
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 
-# Load environment variables from .env file if it exists
+# Load environment variables from root .env file (single source of truth)
 try:
-    from dotenv import load_dotenv
-    env_path = Path(__file__).parent.parent / ".env"
-    if env_path.exists():
-        load_dotenv(env_path)
-        logging.info(f"Loaded environment from {env_path}")
+    from dotenv import load_dotenv, find_dotenv
+    # Find and load the root .env file
+    root_env = find_dotenv(usecwd=False)  # Search upward from current location
+    if not root_env:
+        # If not found via find_dotenv, try explicit path
+        root_env = Path(__file__).parent.parent.parent.parent / ".env"
+    
+    if Path(root_env).exists():
+        load_dotenv(root_env)
+        logging.info(f"Loaded environment from {root_env}")
+    else:
+        logging.warning(f"No .env file found at {root_env}")
+    
+    # Optional: Load local overrides if they exist
+    local_env = Path(__file__).parent.parent / ".env.local"
+    if local_env.exists():
+        load_dotenv(local_env, override=True)
+        logging.info(f"Loaded local overrides from {local_env}")
+        
 except ImportError:
     logging.warning("python-dotenv not available, skipping .env file loading")
 

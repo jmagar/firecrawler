@@ -56,8 +56,9 @@ Built with FastMCP 2.12.2+ and the Firecrawl Python SDK, the server includes com
 
 3. **Configure environment**:
    ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
+   # Environment variables are now loaded from the root project .env file
+   # Edit /home/jmagar/compose/firecrawl/.env with your configuration
+   # For local overrides, create .env.local in this directory (optional)
    ```
 
 4. **Run the server**:
@@ -71,15 +72,18 @@ Built with FastMCP 2.12.2+ and the Firecrawl Python SDK, the server includes com
 
 ### Environment Variables
 
-#### Required
-- `FIRECRAWL_API_KEY` - Your Firecrawl API key (required for cloud API)
+Environment variables are configured in the root `.env` file at the project root.
+See `.env.example` in the root directory for all available options.
 
-#### Optional  
-- `FIRECRAWL_API_BASE_URL` - Self-hosted Firecrawl API URL
+#### Key Variables
+- `FIRECRAWL_API_KEY` - Your Firecrawl API key (required for cloud API)  
+- `FIRECRAWL_API_URL` - Self-hosted Firecrawl API URL (default: http://localhost:3002)
 - `FIRECRAWLER_HOST` - MCP server host (default: localhost)
 - `FIRECRAWLER_PORT` - MCP server port (default: 8000)
 - `FIRECRAWLER_LOG_LEVEL` - Logging level (default: INFO)
 - `FIRECRAWLER_TRANSPORT` - Transport method (default: streamable-http)
+
+For local overrides specific to the MCP server, create `apps/firecrawler/.env.local`
 
 ## Usage Examples
 
