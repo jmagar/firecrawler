@@ -89,15 +89,16 @@ class FirecrawlClient:
                 "or pass api_key parameter."
             )
         
+        self.http_client = HttpClient(api_key, api_url)
+        normalized_api_url = self.http_client.api_url
+
         self.config = ClientConfig(
             api_key=api_key,
-            api_url=api_url,
+            api_url=normalized_api_url,
             timeout=timeout,
             max_retries=max_retries,
             backoff_factor=backoff_factor
         )
-        
-        self.http_client = HttpClient(api_key, api_url)
     
     def scrape(
         self,

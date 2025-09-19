@@ -14,8 +14,11 @@ from typing import Annotated, Any, Literal
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from firecrawl.v2.types import (
+    VectorSearchData,
     VectorSearchFilters,
     VectorSearchRequest,
+    VectorSearchResult,
+    VectorSearchTiming,
 )
 from firecrawl.v2.utils.error_handler import FirecrawlError
 from pydantic import Field
@@ -147,6 +150,140 @@ def optimize_response_size(
     return optimized_data, optimization_metadata
 
 
+def _prepare_vector_search_payload(search_params: dict[str, Any]) -> dict[str, Any]:
+    """Convert internal search parameters to the v2 API payload format."""
+    payload: dict[str, Any] = {
+        "query": search_params["query"],
+    }
+
+    optional_params = {
+        "limit": search_params.get("limit"),
+        "offset": search_params.get("offset"),
+        "threshold": search_params.get("threshold"),
+        "includeContent": search_params.get("include_content"),
+    }
+
+    payload.update({k: v for k, v in optional_params.items() if v is not None})
+
+    filters = search_params.get("filters")
+    if filters:
+        api_filters: dict[str, Any] = {}
+        for key, value in filters.items():
+            if value is None:
+                continue
+            if key == "repository_org":
+                api_filters["repositoryOrg"] = value
+            elif key == "repository_full_name":
+                api_filters["repositoryFullName"] = value
+            elif key == "content_type":
+                api_filters["contentType"] = value
+            elif key == "date_range":
+                api_filters["dateRange"] = value
+            else:
+                api_filters[key] = value
+        if api_filters:
+            payload["filters"] = api_filters
+
+    return payload
+
+
+def _convert_response_to_vector_data(
+    response_data: dict[str, Any],
+    search_params: dict[str, Any]
+) -> VectorSearchData:
+    """Convert raw API response data to VectorSearchData model."""
+    timing_payload = response_data.get("timing") or {}
+    timing = VectorSearchTiming(
+        query_embedding_ms=int(timing_payload.get("queryEmbeddingMs") or timing_payload.get("query_embedding_ms") or 0),
+        vector_search_ms=int(timing_payload.get("vectorSearchMs") or timing_payload.get("vector_search_ms") or 0),
+        total_ms=int(timing_payload.get("totalMs") or timing_payload.get("total_ms") or 0),
+    )
+
+    results_payload = response_data.get("results") or []
+    results: list[VectorSearchResult] = []
+    for result in results_payload:
+        if isinstance(result, VectorSearchResult):
+            results.append(result)
+            continue
+        result_dict = dict(result)
+        result_dict.setdefault("metadata", {})
+        results.append(VectorSearchResult(**result_dict))
+
+    limit_value = response_data.get("limit")
+    if limit_value is None:
+        limit_value = search_params.get("limit")
+    if limit_value is None:
+        limit_value = 10
+
+    offset_value = response_data.get("offset")
+    if offset_value is None:
+        offset_value = search_params.get("offset") or 0
+
+    threshold_value = response_data.get("threshold")
+    if threshold_value is None:
+        threshold_value = search_params.get("threshold")
+    if threshold_value is None:
+        threshold_value = 0.0
+
+    return VectorSearchData(
+        results=results,
+        query=response_data.get("query") or search_params["query"],
+        total_results=response_data.get("totalResults", len(results)),
+        limit=limit_value,
+        offset=offset_value,
+        threshold=threshold_value,
+        threshold_history=response_data.get("thresholdHistory"),
+        timing=timing,
+    )
+
+
+def _fallback_vector_search(client: Any, search_params: dict[str, Any]) -> VectorSearchData:
+    """Retry vector search with the updated v2 payload when legacy clients fail."""
+    http_client = getattr(client, "http_client", None)
+    if http_client is None:
+        raise FirecrawlError(
+            "Firecrawl client does not expose http_client; cannot retry vector search with updated payload"
+        )
+
+    payload = _prepare_vector_search_payload(search_params)
+    response = http_client.post("/v2/vector-search", payload)
+
+    try:
+        response.raise_for_status()
+    except Exception as http_error:  # pragma: no cover - requests raises specific exceptions
+        raise FirecrawlError(f"Vector search retry failed: {http_error}") from http_error
+
+    try:
+        json_body = response.json()
+    except ValueError as json_error:
+        raise FirecrawlError("Vector search retry returned invalid JSON") from json_error
+    if not json_body.get("success"):
+        error_message = json_body.get("message") or "Vector search retry failed"
+        raise FirecrawlError(error_message)
+
+    data = json_body.get("data") or {}
+    return _convert_response_to_vector_data(data, search_params)
+
+
+async def _call_vector_search(
+    client: Any,
+    search_params: dict[str, Any],
+    ctx: Context
+) -> VectorSearchData:
+    """Invoke vector search, retrying with v2 payload when legacy schemas fail."""
+    try:
+        return client.vector_search(**search_params)
+    except FirecrawlError as error:
+        error_text = str(error)
+        if "minSimilarityThreshold" not in error_text:
+            raise
+
+        await ctx.info(
+            "Firecrawl client rejected 'minSimilarityThreshold'; retrying with updated 'threshold' schema"
+        )
+
+        return _fallback_vector_search(client, search_params)
+
 async def paginate_vector_search(
     client: Any,
     search_request: dict[str, Any],
@@ -187,7 +324,7 @@ async def paginate_vector_search(
             await ctx.info(f"Fetching page {page + 1} with offset {current_request['offset']}")
             
             # Perform vector search for this page
-            page_data = client.vector_search(**current_request)
+            page_data = await _call_vector_search(client, current_request, ctx)
             
             if not page_data or not hasattr(page_data, 'results') or not page_data.results:
                 pagination_metadata["stopped_reason"] = "no_more_results"
@@ -303,84 +440,68 @@ def register_firerag_tools(mcp: FastMCP) -> None:
             min_length=1,
             max_length=1000
         )],
-        limit: int | None = Field(
-            default=10,
+        limit: Annotated[int, Field(
             description="Maximum number of vector search results to return",
             ge=1,
             le=100
-        ),
-        offset: int | None = Field(
-            default=0,
+        )] = 10,
+        offset: Annotated[int, Field(
             description="Number of results to skip for pagination",
             ge=0
-        ),
-        threshold: float | None = Field(
-            default=None,
+        )] = 0,
+        threshold: Annotated[float | None, Field(
             description="Minimum similarity threshold for results (0.0-1.0)",
             ge=0.0,
             le=1.0
-        ),
-        include_content: bool | None = Field(
-            default=True,
+        )] = None,
+        include_content: Annotated[bool, Field(
             description="Whether to include full content in results"
-        ),
+        )] = True,
         # Filtering options
-        domain: str | None = Field(
-            default=None,
+        domain: Annotated[str | None, Field(
             description="Filter by specific domain (e.g., 'docs.python.org')"
-        ),
-        repository: str | None = Field(
-            default=None,
+        )] = None,
+        repository: Annotated[str | None, Field(
             description="Filter by repository name (e.g., 'pandas')"
-        ),
-        repository_org: str | None = Field(
-            default=None,
+        )] = None,
+        repository_org: Annotated[str | None, Field(
             description="Filter by repository organization (e.g., 'microsoft')"
-        ),
-        repository_full_name: str | None = Field(
-            default=None,
+        )] = None,
+        repository_full_name: Annotated[str | None, Field(
             description="Filter by full repository name (e.g., 'microsoft/vscode')"
-        ),
-        content_type: Literal["readme", "api-docs", "tutorial", "configuration", "code", "other"] | None = Field(
-            default=None,
+        )] = None,
+        content_type: Annotated[Literal["readme", "api-docs", "tutorial", "configuration", "code", "other"] | None, Field(
             description="Filter by content type"
-        ),
-        date_from: str | None = Field(
-            default=None,
+        )] = None,
+        date_from: Annotated[str | None, Field(
             description="Filter results from this date (ISO format: YYYY-MM-DD)"
-        ),
-        date_to: str | None = Field(
-            default=None,
+        )] = None,
+        date_to: Annotated[str | None, Field(
             description="Filter results until this date (ISO format: YYYY-MM-DD)"
-        ),
+        )] = None,
         # Response size management
-        max_response_tokens: int = Field(
-            default=20000,
+        max_response_tokens: Annotated[int, Field(
             description="Maximum response tokens to stay under MCP 25k limit",
             ge=1000,
             le=24000
-        ),
-        auto_optimize: bool = Field(
-            default=True,
+        )] = 20000,
+        auto_optimize: Annotated[bool, Field(
             description="Automatically optimize large responses"
-        ),
+        )] = True,
         # Advanced pagination
-        auto_paginate: bool = Field(
-            default=False,
+        auto_paginate: Annotated[bool, Field(
             description="Fetch multiple pages automatically"
-        ),
-        max_pages: int | None = Field(
-            default=None,
+        )] = False,
+        max_pages: Annotated[int | None, Field(
             description="Limit pagination API calls",
             ge=1,
             le=20
-        ),
-        max_results: int | None = Field(
-            default=None,
+        )] = None,
+        max_results: Annotated[int | None, Field(
             description="Stop when enough results collected",
             ge=1,
             le=1000
-        )
+        )] = None
     ) -> dict[str, Any]:
         """
         Perform semantic vector search against stored Firecrawl embeddings.
@@ -512,7 +633,7 @@ def register_firerag_tools(mcp: FastMCP) -> None:
                         f"Pagination complete: {pagination_metadata['pages_fetched']} pages, {len(all_results)} total results"
                     )
                 else:
-                    vector_data = client.vector_search(**search_params)
+                    vector_data = await _call_vector_search(client, search_params, ctx)
 
             except FirecrawlError as e:
                 await ctx.error(f"Vector search failed: {e}")

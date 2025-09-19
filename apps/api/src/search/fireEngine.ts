@@ -67,8 +67,8 @@ export async function fireEngineMap(
   abort?: AbortSignal,
 ): Promise<SearchResult[]> {
   if (!useFireEngine) {
-    logger.warn(
-      "(v1/map Beta) Results might differ from cloud offering currently.",
+    logger.info(
+      "(Map) Fire engine disabled, results might differ from cloud offering.",
     );
     return [];
   }

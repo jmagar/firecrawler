@@ -6,7 +6,7 @@ from websites including sitemap parsing, subdomain exploration, and URL filterin
 """
 
 import logging
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -42,40 +42,33 @@ def register_map_tools(mcp: FastMCP) -> None:
             min_length=1,
             max_length=2048
         )],
-        search: str | None = Field(
-            default=None,
+        search: Annotated[str | None, Field(
             description="Search filter to limit discovered URLs to specific patterns",
             max_length=500
-        ),
-        sitemap: str | None = Field(
-            default="include",
+        )] = None,
+        sitemap: Annotated[Literal["only", "include", "skip"], Field(
             description="Sitemap handling strategy: 'only' (only from sitemap), 'include' (sitemap + discovery), 'skip' (no sitemap)"
-        ),
-        include_subdomains: bool | None = Field(
-            default=None,
+        )] = "include",
+        include_subdomains: Annotated[bool | None, Field(
             description="Whether to include URLs from subdomains in the mapping"
-        ),
-        limit: int | None = Field(
-            default=None,
+        )] = None,
+        limit: Annotated[int | None, Field(
             description="Maximum number of URLs to discover",
             ge=1,
             le=10000
-        ),
-        timeout: int | None = Field(
-            default=None,
+        )] = None,
+        timeout: Annotated[int | None, Field(
             description="Timeout in seconds for the mapping operation",
             ge=1,
             le=300
-        ),
-        integration: str | None = Field(
-            default=None,
+        )] = None,
+        integration: Annotated[str | None, Field(
             description="Integration identifier for custom processing",
             max_length=100
-        ),
-        location: Location | None = Field(
-            default=None,
+        )] = None,
+        location: Annotated[Location | None, Field(
             description="Geographic location configuration for mapping"
-        )
+        )] = None
     ) -> MapData:
         """
         Discover and map URLs from a website with comprehensive discovery options.
@@ -85,13 +78,13 @@ def register_map_tools(mcp: FastMCP) -> None:
         to provide a complete map of available URLs.
         
         Args:
-            url: Website URL to map and discover URLs from
-            search: Search filter to limit discovered URLs to specific patterns
-            sitemap: Sitemap handling strategy ('only', 'include', 'skip')
+            url: Website URL to map and discover URLs from (must be http:// or https://)
+            search: Search filter to limit discovered URLs to specific patterns (max 500 chars)
+            sitemap: Sitemap handling strategy ('only', 'include', 'skip') (default: 'include')
             include_subdomains: Whether to include URLs from subdomains in the mapping
-            limit: Maximum number of URLs to discover
-            timeout: Timeout in seconds for the mapping operation
-            integration: Integration identifier for custom processing
+            limit: Maximum number of URLs to discover (1-10000)
+            timeout: Timeout in seconds for the mapping operation (1-300)
+            integration: Integration identifier for custom processing (max 100 chars)
             location: Geographic location configuration for mapping
             ctx: MCP context for logging and progress reporting
             
@@ -108,11 +101,18 @@ def register_map_tools(mcp: FastMCP) -> None:
             client = get_firecrawl_client()
 
             # Validate URL format
-            if not url.strip():
+            if not url or not url.strip():
                 raise ToolError("URL cannot be empty")
 
             if not (url.startswith("http://") or url.startswith("https://")):
                 raise ToolError("URL must start with http:// or https://")
+            
+            if len(url) > 2048:
+                raise ToolError("URL must not exceed 2048 characters")
+
+            # Validate search parameter
+            if search and len(search) > 500:
+                raise ToolError("Search filter must not exceed 500 characters")
 
             # Validate sitemap parameter
             valid_sitemap_values = ["only", "include", "skip"]
@@ -120,12 +120,18 @@ def register_map_tools(mcp: FastMCP) -> None:
                 raise ToolError(f"Invalid sitemap value '{sitemap}'. Must be one of: {', '.join(valid_sitemap_values)}")
 
             # Validate timeout
-            if timeout and (timeout < 1 or timeout > 300):
-                raise ToolError("Timeout must be between 1 and 300 seconds")
+            if timeout is not None:
+                if timeout < 1 or timeout > 300:
+                    raise ToolError("Timeout must be between 1 and 300 seconds")
 
             # Validate limit
-            if limit and (limit < 1 or limit > 10000):
-                raise ToolError("Limit must be between 1 and 10,000 URLs")
+            if limit is not None:
+                if limit < 1 or limit > 10000:
+                    raise ToolError("Limit must be between 1 and 10,000 URLs")
+            
+            # Validate integration
+            if integration and len(integration) > 100:
+                raise ToolError("Integration identifier must not exceed 100 characters")
 
             # Report initial progress
             await ctx.report_progress(10, 100)

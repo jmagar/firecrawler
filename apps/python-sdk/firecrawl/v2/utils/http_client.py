@@ -15,7 +15,67 @@ class HttpClient:
     
     def __init__(self, api_key: str, api_url: str):
         self.api_key = api_key
-        self.api_url = api_url
+        self.api_url = self._normalize_base_url(api_url)
+
+    @staticmethod
+    def _normalize_base_url(api_url: str) -> str:
+        """Ensure the base API URL includes a scheme and host."""
+        if not api_url:
+            raise ValueError("API URL cannot be empty")
+
+        parsed = urlparse(api_url)
+
+        # Already well-formed with scheme and host
+        if parsed.scheme and parsed.netloc:
+            return api_url.rstrip('/')
+
+        # Handle inputs that urlparse misclassifies as a scheme (e.g. "localhost:3000")
+        if parsed.scheme and not parsed.netloc:
+            candidate = f"{parsed.scheme}:{parsed.path}".lstrip('/')
+            if not candidate:
+                raise ValueError(f"Invalid API URL '{api_url}': missing hostname")
+
+            host, path = candidate, ''
+            if '/' in candidate:
+                host, remainder = candidate.split('/', 1)
+                path = f"/{remainder}"
+
+            scheme = 'http' if host.startswith(('localhost', '127.', '0.0.0.0')) else 'https'
+            normalized = urlunparse((scheme, host, path, '', parsed.query, ''))
+            return normalized.rstrip('/')
+
+        # Handle protocol-relative URLs (e.g. //api.example.com)
+        if api_url.startswith('//'):
+            normalized = f"https:{api_url}"
+            parsed = urlparse(normalized)
+            if parsed.netloc:
+                return normalized.rstrip('/')
+            raise ValueError(f"Invalid API URL '{api_url}': missing hostname")
+
+        # Reject relative paths like /foo/bar early
+        if api_url.startswith('/'):
+            raise ValueError(
+                f"Invalid API URL '{api_url}': expected hostname, got relative path"
+            )
+
+        # Treat strings without scheme (e.g. localhost:3000 or api.example.com)
+        if not parsed.scheme and not parsed.netloc and parsed.path:
+            host_path = parsed.path
+            host, path = host_path, ''
+            if '/' in host_path:
+                host, remainder = host_path.split('/', 1)
+                path = f"/{remainder}"
+
+            if not host:
+                raise ValueError(f"Invalid API URL '{api_url}': missing hostname")
+
+            scheme = 'http' if host.startswith(('localhost', '127.', '0.0.0.0')) else 'https'
+            normalized = urlunparse((scheme, host, path, '', parsed.query, ''))
+            return normalized.rstrip('/')
+
+        raise ValueError(
+            f"Invalid API URL '{api_url}': expected absolute URL with scheme"
+        )
 
     def _build_url(self, endpoint: str) -> str:
         base = urlparse(self.api_url)
