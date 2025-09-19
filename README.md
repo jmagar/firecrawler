@@ -37,6 +37,17 @@
 
 Empower your AI apps with clean data from any website. Featuring advanced scraping, crawling, and data extraction capabilities.
 
+> **⚠️ Breaking Changes in Latest Version**
+> 
+> This version includes breaking changes. Please review the [Migration Guide](docs/MIGRATION_GUIDE.md) before upgrading.
+> 
+> Key changes:
+> - `VECTOR_DIMENSION` is now required
+> - `metadata.wordCount` renamed to `approxWordCount`
+> - SDK method deprecations
+> 
+> See full [Migration Guide](docs/MIGRATION_GUIDE.md) for details.
+
 _This repository is in development, and we’re still integrating custom modules into the mono repo. It's not fully ready for self-hosted deployment yet, but you can run it locally._
 
 ## What is Firecrawl?

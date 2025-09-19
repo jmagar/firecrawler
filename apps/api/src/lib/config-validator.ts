@@ -1,10 +1,77 @@
 import { z } from "zod";
 import { countries } from "./validate-country";
+import { logger } from "./logger";
+import { SecurityAuditLogger } from "./security/audit-logger";
 
 const SPECIAL_COUNTRIES = ["us-generic", "us-whitelist"];
 const COUNTRY_CODES = new Set([
   ...Object.keys(countries).map(code => code.toUpperCase()),
   ...SPECIAL_COUNTRIES.map(code => code.toLowerCase()),
+]);
+
+// Allowed environment variables whitelist for security
+const ALLOWED_ENV_VARS = new Set([
+  "FIRECRAWL_API_URL",
+  "PORT",
+  "REDIS_HOST",
+  "REDIS_PORT",
+  "REDIS_PASSWORD",
+  "DATABASE_URL",
+  "VECTOR_DIMENSION",
+  "MODEL_EMBEDDING_NAME",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "SUPABASE_URL",
+  "SUPABASE_ANON_KEY",
+  "BULL_AUTH_KEY",
+  "LOGTAIL_KEY",
+  "PLAYWRIGHT_MICROSERVICE_URL",
+  "LLAMAPARSE_API_KEY",
+  "SERP_API_KEY",
+  "SCRAPING_BEE_API_KEY",
+  "FIRE_ENGINE_BETA_URL",
+  "HYPERBOLIC_API_KEY",
+  "OPENROUTER_API_KEY",
+  "TOGETHER_API_KEY",
+  "OLLAMA_BASE_URL",
+  "FLY_MACHINE_VERSION",
+  "POSTHOG_API_KEY",
+  "POSTHOG_HOST",
+  "SLACK_WEBHOOK_URL",
+  "ENV",
+  "NODE_ENV",
+  "NUM_WORKERS_PER_QUEUE",
+  "REDIS_RATE_LIMIT_URL",
+  "USE_DB_AUTHENTICATION",
+  "SUPABASE_SERVICE_TOKEN",
+  "STRIPE_PRICE_ID",
+  "STRIPE_WEBHOOK_SECRET",
+  "WEBHOOK_URL",
+  "WORKERS_URL",
+  "WORKERS_TOKEN",
+  "SCRAPE_DO_API_KEY",
+  "BRIGHTDATA_PASSWORD",
+  "BRIGHTDATA_USERNAME",
+  "LLAMAINDEX_LOGGING_ENABLED",
+  "TEST_API_KEY",
+  "SELF_HOSTED_WEBHOOK_URL",
+  "FIRECRAWL_CONFIG_PATH",
+  "FIRECRAWL_CONFIG_OVERRIDE",
+  // Test environment variables used in tests
+  "TEST_VAR",
+  "TIMEOUT_VAR",
+  "MOBILE_VAR",
+  "ENABLE_FEATURE",
+  "DISABLE_FEATURE",
+  "INVALID_NUMBER",
+  "MISSING_VAR",
+  "NONEXISTENT_VAR",
+  "ANOTHER_VAR",
+  "UNDEFINED_VAR",
+  "VAR",
+  "TEST_SUITE_SELF_HOSTED",
+  "IDMUX_URL",
+  "CONFIG_DEBOUNCE_DELAY",
 ]);
 
 const strictMessage =
@@ -28,7 +95,47 @@ const envVarString = z
   .transform(val => {
     if (!val.includes("${")) return val;
     return val.replace(envVarPattern, (_match, varName, _all, defaultValue) => {
+      // Security: Check if environment variable is whitelisted
+      if (!ALLOWED_ENV_VARS.has(varName)) {
+        logger.warn("Attempted to access unauthorized environment variable", {
+          variable: varName,
+          module: "config-validator",
+          method: "envVarString.transform",
+        });
+        SecurityAuditLogger.logUnauthorizedAccess("ENV_ACCESS", {
+          variable: varName,
+          context: "config-validator.envVarString.transform",
+        });
+        return defaultValue || "";
+      }
+
       const envValue = process.env[varName];
+
+      // Log sensitive variable access
+      SecurityAuditLogger.logEnvAccess(
+        varName,
+        "config-validator.envVarString.transform",
+      );
+      if (
+        varName.includes("KEY") ||
+        varName.includes("SECRET") ||
+        varName.includes("TOKEN") ||
+        varName.includes("PASSWORD")
+      ) {
+        logger.info("Sensitive environment variable accessed", {
+          variable: varName,
+          redacted: "[REDACTED]",
+          module: "config-validator",
+          method: "envVarString.transform",
+        });
+      } else {
+        logger.debug("Environment variable accessed", {
+          variable: varName,
+          module: "config-validator",
+          method: "envVarString.transform",
+        });
+      }
+
       return envValue !== undefined ? envValue : defaultValue || "";
     });
   });
@@ -236,7 +343,47 @@ export function resolveEnvVars(value: any): any {
     return value.replace(
       envVarPattern,
       (_match, varName, _all, defaultValue) => {
+        // Security: Check if environment variable is whitelisted
+        if (!ALLOWED_ENV_VARS.has(varName)) {
+          logger.warn("Attempted to access unauthorized environment variable", {
+            variable: varName,
+            module: "config-validator",
+            method: "resolveEnvVars",
+          });
+          SecurityAuditLogger.logUnauthorizedAccess("ENV_ACCESS", {
+            variable: varName,
+            context: "config-validator.resolveEnvVars",
+          });
+          return defaultValue || "";
+        }
+
         const envValue = process.env[varName];
+
+        // Log sensitive variable access
+        SecurityAuditLogger.logEnvAccess(
+          varName,
+          "config-validator.resolveEnvVars",
+        );
+        if (
+          varName.includes("KEY") ||
+          varName.includes("SECRET") ||
+          varName.includes("TOKEN") ||
+          varName.includes("PASSWORD")
+        ) {
+          logger.info("Sensitive environment variable accessed", {
+            variable: varName,
+            redacted: "[REDACTED]",
+            module: "config-validator",
+            method: "resolveEnvVars",
+          });
+        } else {
+          logger.debug("Environment variable accessed", {
+            variable: varName,
+            module: "config-validator",
+            method: "resolveEnvVars",
+          });
+        }
+
         return envValue !== undefined ? envValue : defaultValue || "";
       },
     );

@@ -4,6 +4,7 @@ import * as path from "path";
 import * as yaml from "js-yaml";
 import chokidar, { FSWatcher } from "chokidar";
 import { logger } from "../lib/logger";
+import { SecurityAuditLogger } from "../lib/security/audit-logger";
 
 interface ConfigCache {
   data: Record<string, any>;
@@ -21,6 +22,92 @@ interface EnvironmentVariableMatch {
   defaultValue?: string;
 }
 
+// Define base directory for configs - restrict to safe directories
+const CONFIG_BASE_DIR = path.resolve(process.cwd(), "config");
+const CONFIG_FALLBACK_DIRS = [
+  process.cwd(),
+  path.resolve(process.cwd(), "..", ".."), // For monorepo structure
+];
+
+// Allowed environment variables whitelist for security (same as config-validator)
+const ALLOWED_ENV_VARS = new Set([
+  "FIRECRAWL_API_URL",
+  "PORT",
+  "REDIS_HOST",
+  "REDIS_PORT",
+  "REDIS_PASSWORD",
+  "DATABASE_URL",
+  "VECTOR_DIMENSION",
+  "MODEL_EMBEDDING_NAME",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "SUPABASE_URL",
+  "SUPABASE_ANON_KEY",
+  "BULL_AUTH_KEY",
+  "LOGTAIL_KEY",
+  "PLAYWRIGHT_MICROSERVICE_URL",
+  "LLAMAPARSE_API_KEY",
+  "SERP_API_KEY",
+  "SCRAPING_BEE_API_KEY",
+  "FIRE_ENGINE_BETA_URL",
+  "HYPERBOLIC_API_KEY",
+  "OPENROUTER_API_KEY",
+  "TOGETHER_API_KEY",
+  "OLLAMA_BASE_URL",
+  "FLY_MACHINE_VERSION",
+  "POSTHOG_API_KEY",
+  "POSTHOG_HOST",
+  "SLACK_WEBHOOK_URL",
+  "ENV",
+  "NODE_ENV",
+  "NUM_WORKERS_PER_QUEUE",
+  "REDIS_RATE_LIMIT_URL",
+  "USE_DB_AUTHENTICATION",
+  "SUPABASE_SERVICE_TOKEN",
+  "STRIPE_PRICE_ID",
+  "STRIPE_WEBHOOK_SECRET",
+  "WEBHOOK_URL",
+  "WORKERS_URL",
+  "WORKERS_TOKEN",
+  "SCRAPE_DO_API_KEY",
+  "BRIGHTDATA_PASSWORD",
+  "BRIGHTDATA_USERNAME",
+  "LLAMAINDEX_LOGGING_ENABLED",
+  "TEST_API_KEY",
+  "SELF_HOSTED_WEBHOOK_URL",
+  "FIRECRAWL_CONFIG_PATH",
+  "FIRECRAWL_CONFIG_OVERRIDE",
+  // Test environment variables used in tests
+  "TEST_VAR",
+  "TIMEOUT_VAR",
+  "MOBILE_VAR",
+  "ENABLE_FEATURE",
+  "DISABLE_FEATURE",
+  "INVALID_NUMBER",
+  "MISSING_VAR",
+  "NONEXISTENT_VAR",
+  "ANOTHER_VAR",
+  "UNDEFINED_VAR",
+  "VAR",
+  "TEST_SUITE_SELF_HOSTED",
+  "IDMUX_URL",
+  "CONFIG_DEBOUNCE_DELAY",
+]);
+
+/**
+ * Configuration management service with file watching and caching.
+ *
+ * Provides centralized configuration loading from YAML files with:
+ * - Automatic file watching and hot reloading
+ * - Environment variable substitution
+ * - JSON override support
+ * - Thread-safe caching with mutex protection
+ * - Path traversal prevention
+ *
+ * @example
+ * const config = await configService.getConfiguration();
+ * const apiConfig = config.api || {};
+ */
 class ConfigService {
   private static instance: ConfigService;
   private static instanceMutex = new Mutex();
@@ -30,12 +117,97 @@ class ConfigService {
   private watcher: FSWatcher | null = null;
   private configPath: string;
   private readonly cacheTTL: number = 30000; // 30 seconds
-  private readonly watchDebounceDelay: number = 1000; // 1 second
+  private readonly watchDebounceDelay: number = parseInt(
+    process.env.CONFIG_DEBOUNCE_DELAY || "1000",
+  ); // 1 second
   private watchTimeout: NodeJS.Timeout | null = null;
+  private configMutex = new Mutex();
 
   private constructor() {
     // Discover config file path
     this.configPath = this.discoverConfigPath();
+  }
+
+  private validateConfigPath(configPath: string): string | null {
+    try {
+      const resolved = path.resolve(configPath);
+
+      // Check against allowed base directories
+      const isAllowedPath = CONFIG_FALLBACK_DIRS.some(baseDir => {
+        const resolvedBaseDir = path.resolve(baseDir);
+        return resolved.startsWith(resolvedBaseDir);
+      });
+
+      if (!isAllowedPath) {
+        logger.error(
+          "Path traversal attempt detected - path outside allowed directories",
+          {
+            module: "config-service",
+            method: "validateConfigPath",
+            attempted: configPath,
+            resolved,
+            allowedDirectories: CONFIG_FALLBACK_DIRS,
+          },
+        );
+        SecurityAuditLogger.logPathAccess(configPath, false);
+        SecurityAuditLogger.logUnauthorizedAccess("PATH_TRAVERSAL", {
+          attempted: configPath,
+          resolved,
+          reason: "outside_allowed_directories",
+        });
+        return null;
+      }
+
+      // Additional security: ensure no upward directory traversal patterns
+      const normalizedPath = path.normalize(configPath);
+      if (normalizedPath.includes("..")) {
+        logger.error(
+          "Path traversal attempt detected - contains directory traversal patterns",
+          {
+            module: "config-service",
+            method: "validateConfigPath",
+            attempted: configPath,
+            normalized: normalizedPath,
+          },
+        );
+        SecurityAuditLogger.logPathAccess(configPath, false);
+        SecurityAuditLogger.logUnauthorizedAccess("PATH_TRAVERSAL", {
+          attempted: configPath,
+          normalized: normalizedPath,
+          reason: "directory_traversal_patterns",
+        });
+        return null;
+      }
+
+      // Ensure the resolved path actually ends with a reasonable config file
+      if (!resolved.match(/\.(yaml|yml|json)$/i)) {
+        logger.warn("Invalid config file extension", {
+          module: "config-service",
+          method: "validateConfigPath",
+          attempted: configPath,
+          resolved,
+        });
+        return null;
+      }
+
+      logger.debug("Config path validated successfully", {
+        module: "config-service",
+        method: "validateConfigPath",
+        original: configPath,
+        resolved,
+      });
+
+      SecurityAuditLogger.logPathAccess(configPath, true);
+      return resolved;
+    } catch (error) {
+      logger.error("Error validating config path", {
+        module: "config-service",
+        method: "validateConfigPath",
+        attempted: configPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
   public static async getInstance(): Promise<ConfigService> {
@@ -53,10 +225,28 @@ class ConfigService {
   }
 
   private discoverConfigPath(): string {
-    // Check environment variable first
+    // Check environment variable first with validation
     const envPath = process.env.FIRECRAWL_CONFIG_PATH;
-    if (envPath && fs.existsSync(envPath)) {
-      return envPath;
+    if (envPath) {
+      const validatedPath = this.validateConfigPath(envPath);
+      if (validatedPath && fs.existsSync(validatedPath)) {
+        logger.info("Using environment-specified config path", {
+          module: "config-service",
+          method: "discoverConfigPath",
+          configPath: validatedPath,
+        });
+        return validatedPath;
+      } else if (envPath) {
+        logger.warn(
+          "Environment-specified config path is invalid or does not exist",
+          {
+            module: "config-service",
+            method: "discoverConfigPath",
+            attempted: envPath,
+            validated: validatedPath,
+          },
+        );
+      }
     }
 
     // Default paths to check
@@ -67,13 +257,25 @@ class ConfigService {
     ];
 
     for (const configPath of defaultPaths) {
-      if (fs.existsSync(configPath)) {
-        return configPath;
+      const validatedPath = this.validateConfigPath(configPath);
+      if (validatedPath && fs.existsSync(validatedPath)) {
+        logger.info("Using default config path", {
+          module: "config-service",
+          method: "discoverConfigPath",
+          configPath: validatedPath,
+        });
+        return validatedPath;
       }
     }
 
     // Return default path even if file doesn't exist (for logging purposes)
-    return path.join(process.cwd(), "defaults.yaml");
+    const defaultPath = path.join(process.cwd(), "defaults.yaml");
+    logger.debug("No existing config found, using default path", {
+      module: "config-service",
+      method: "discoverConfigPath",
+      configPath: defaultPath,
+    });
+    return defaultPath;
   }
 
   private getFileModifiedTime(filePath: string): number {
@@ -211,28 +413,75 @@ class ConfigService {
     }
   }
 
-  private handleFileChange(): void {
-    // Clear existing timeout to debounce rapid changes
-    if (this.watchTimeout) {
-      clearTimeout(this.watchTimeout);
-    }
+  // Add debounce utility method
+  private debounce<T extends (...args: any[]) => void>(
+    func: T,
+    wait: number,
+  ): (...args: Parameters<T>) => void {
+    let timeoutId: NodeJS.Timeout | null = null;
+    let lastCallTime = 0;
 
-    this.watchTimeout = setTimeout(() => {
-      logger.info("Configuration file changed, clearing cache", {
-        module: "config-service",
-        method: "handleFileChange",
-        configPath: this.configPath,
-      });
+    return (...args: Parameters<T>) => {
+      const now = Date.now();
+      const timeSinceLastCall = now - lastCallTime;
 
-      this.configCache = null;
-
-      if (this.fileWatcher) {
-        this.fileWatcher.lastModified = this.getFileModifiedTime(
-          this.configPath,
-        );
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
-    }, this.watchDebounceDelay);
+
+      // Log rapid changes for monitoring
+      if (timeSinceLastCall < 100) {
+        logger.warn("Rapid config changes detected", {
+          timeSinceLastCall,
+          module: "config-service",
+        });
+      }
+
+      lastCallTime = now;
+      timeoutId = setTimeout(() => {
+        func(...args);
+        timeoutId = null;
+      }, wait);
+    };
   }
+
+  // Replace handleFileChange implementation
+  private handleFileChange = this.debounce((): void => {
+    this.configMutex.runExclusive(async () => {
+      try {
+        logger.info("Configuration file changed, reloading atomically", {
+          module: "config-service",
+          method: "handleFileChange",
+          configPath: this.configPath,
+        });
+
+        // Atomic cache invalidation and reload
+        const previousCache = this.configCache;
+        this.configCache = null;
+
+        // Update file watcher state
+        if (this.fileWatcher) {
+          this.fileWatcher.lastModified = this.getFileModifiedTime(
+            this.configPath,
+          );
+        }
+
+        // Attempt to reload configuration
+        try {
+          await this.getConfiguration();
+          logger.info("Configuration reloaded successfully");
+        } catch (error) {
+          // Restore previous cache on failure
+          this.configCache = previousCache;
+          logger.error("Failed to reload configuration, restored previous", {
+            error,
+          });
+        }
+      } catch (error) {
+        logger.error("Critical error in handleFileChange", { error });
+      }
+    });
+  }, this.watchDebounceDelay);
 
   private substituteEnvironmentVariables(value: any): any {
     if (typeof value === "string") {
@@ -261,16 +510,99 @@ class ConfigService {
     return v;
   }
 
+  private sanitizeEnvValue(varName: string, value: string): string {
+    // Remove potentially dangerous characters that could be used for injection
+    const sanitized = value.replace(/[<>&'"\\]/g, "");
+
+    // Log sanitization using SecurityAuditLogger
+    SecurityAuditLogger.logSanitization("ENV_VALUE", value, sanitized);
+
+    // Log sensitive variable access with redacted values
+    if (
+      varName.includes("KEY") ||
+      varName.includes("SECRET") ||
+      varName.includes("TOKEN") ||
+      varName.includes("PASSWORD")
+    ) {
+      logger.info(
+        "Sensitive environment variable accessed during config substitution",
+        {
+          variable: varName,
+          redacted: "[REDACTED]",
+          module: "config-service",
+          method: "sanitizeEnvValue",
+        },
+      );
+    } else {
+      logger.debug("Environment variable sanitized", {
+        variable: varName,
+        originalLength: value.length,
+        sanitizedLength: sanitized.length,
+        module: "config-service",
+        method: "sanitizeEnvValue",
+      });
+    }
+
+    // Warn if sanitization removed characters
+    if (sanitized.length !== value.length) {
+      logger.warn(
+        "Potentially dangerous characters removed from environment variable",
+        {
+          variable: varName,
+          originalLength: value.length,
+          sanitizedLength: sanitized.length,
+          module: "config-service",
+          method: "sanitizeEnvValue",
+        },
+      );
+    }
+
+    return sanitized;
+  }
+
   private substituteEnvInString(str: string): any {
     const envVarRegex = /\$\{([^}]+)\}/g;
 
     const result = str.replace(envVarRegex, (match, expression) => {
       const parsed = this.parseEnvironmentExpression(expression);
+
+      // Security: Check if environment variable is whitelisted
+      if (!ALLOWED_ENV_VARS.has(parsed.variable)) {
+        logger.warn(
+          "Attempted to access unauthorized environment variable during config substitution",
+          {
+            variable: parsed.variable,
+            expression,
+            module: "config-service",
+            method: "substituteEnvInString",
+          },
+        );
+        SecurityAuditLogger.logUnauthorizedAccess("ENV_ACCESS", {
+          variable: parsed.variable,
+          context: "config-service.substituteEnvInString",
+          expression,
+        });
+        return parsed.defaultValue || "";
+      }
+
       const envValue = process.env[parsed.variable];
 
       if (envValue !== undefined) {
-        return envValue;
+        // Log environment variable access
+        SecurityAuditLogger.logEnvAccess(
+          parsed.variable,
+          "config-service.substituteEnvInString",
+        );
+        // Sanitize the environment value before using it
+        const sanitizedValue = this.sanitizeEnvValue(parsed.variable, envValue);
+        return sanitizedValue;
       } else if (parsed.defaultValue !== undefined) {
+        logger.debug("Using default value for environment variable", {
+          variable: parsed.variable,
+          hasDefault: true,
+          module: "config-service",
+          method: "substituteEnvInString",
+        });
         return parsed.defaultValue;
       } else {
         logger.warn("Environment variable not found and no default provided", {
@@ -423,10 +755,17 @@ class ConfigService {
   }
 
   private loadConfiguration(): Record<string, any> {
+    const startTime = Date.now();
+
     // Load YAML file
     const yamlConfig = this.loadYamlFile();
 
-    // Apply environment variable substitution
+    // Apply environment variable substitution with security logging
+    logger.debug("Applying environment variable substitution to config", {
+      module: "config-service",
+      method: "loadConfiguration",
+      configSections: Object.keys(yamlConfig),
+    });
     const substitutedConfig = this.substituteEnvironmentVariables(yamlConfig);
 
     // Load JSON override
@@ -435,6 +774,10 @@ class ConfigService {
     // Merge configurations with precedence: JSON override > YAML file
     const finalConfig = this.deepMerge(substitutedConfig, jsonOverride);
 
+    const loadTime = Date.now() - startTime;
+
+    // Security: Log configuration loading patterns for monitoring
+    SecurityAuditLogger.logConfigChange(this.configPath);
     logger.info("Configuration loaded successfully", {
       module: "config-service",
       method: "loadConfiguration",
@@ -442,6 +785,7 @@ class ConfigService {
       hasYamlConfig: Object.keys(yamlConfig).length > 0,
       hasJsonOverride: Object.keys(jsonOverride).length > 0,
       yamlConfigSections: Object.keys(yamlConfig),
+      jsonOverrideSections: Object.keys(jsonOverride),
       finalConfigSections: Object.keys(finalConfig),
       totalConfigOptions: Object.values(finalConfig).reduce(
         (total: number, section: any) =>
@@ -451,9 +795,64 @@ class ConfigService {
             : 0),
         0,
       ),
+      loadTimeMs: loadTime,
+      timestamp: new Date().toISOString(),
     });
 
+    // Security audit: detect unusual configuration patterns
+    this.auditConfigurationLoad(yamlConfig, jsonOverride, finalConfig);
+
     return finalConfig;
+  }
+
+  private auditConfigurationLoad(
+    yamlConfig: Record<string, any>,
+    jsonOverride: Record<string, any>,
+    finalConfig: Record<string, any>,
+  ): void {
+    // Detect if JSON override is overriding significant portions of YAML config
+    const yamlKeys = Object.keys(yamlConfig);
+    const overrideKeys = Object.keys(jsonOverride);
+    const overriddenYamlKeys = yamlKeys.filter(key =>
+      overrideKeys.includes(key),
+    );
+
+    if (overriddenYamlKeys.length > 0) {
+      logger.info("JSON override is overriding YAML configuration sections", {
+        module: "config-service",
+        method: "auditConfigurationLoad",
+        overriddenSections: overriddenYamlKeys,
+        overridePercentage: Math.round(
+          (overriddenYamlKeys.length / yamlKeys.length) * 100,
+        ),
+      });
+    }
+
+    // Detect large JSON overrides (potential security concern)
+    const jsonOverrideSize = JSON.stringify(jsonOverride).length;
+    if (jsonOverrideSize > 10000) {
+      logger.warn("Large JSON configuration override detected", {
+        module: "config-service",
+        method: "auditConfigurationLoad",
+        overrideSize: jsonOverrideSize,
+        overrideSections: Object.keys(jsonOverride),
+      });
+    }
+
+    // Log final configuration structure for audit trail
+    const configStructure = Object.fromEntries(
+      Object.entries(finalConfig).map(([key, value]) => [
+        key,
+        value && typeof value === "object" ? Object.keys(value).length : 1,
+      ]),
+    );
+
+    logger.debug("Final configuration structure audit", {
+      module: "config-service",
+      method: "auditConfigurationLoad",
+      structure: configStructure,
+      totalSections: Object.keys(finalConfig).length,
+    });
   }
 
   public async getConfiguration(): Promise<Record<string, any>> {

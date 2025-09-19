@@ -25,18 +25,44 @@ import {
   VectorSearchResponse,
   VectorSearchResult as APIVectorSearchResult,
 } from "../../controllers/v2/types";
+import { parseEnvFloat, parseEnvInt } from "../../lib/utils/env-utils";
+import {
+  VectorSearchServiceOptions,
+  VectorSearchTiming,
+  ThresholdSelectionResult,
+  QueryEmbeddingResult,
+  SearchExecutionResult,
+} from "./types/vector-search.types";
 
-interface VectorSearchServiceOptions {
-  logger?: Logger;
-  costTracking?: CostTracking;
-  teamId: string;
-  thresholdProvided?: boolean;
-}
+// Configuration Constants
+const VECTOR_SEARCH_CONFIG = {
+  // Threshold floors from environment or defaults
+  THRESHOLD_FLOORS: {
+    LEVEL_1: parseEnvFloat("VECTOR_THRESHOLD_FLOOR_1", 0.55),
+    LEVEL_2: parseEnvFloat("VECTOR_THRESHOLD_FLOOR_2", 0.4),
+    LEVEL_3: parseEnvFloat("VECTOR_THRESHOLD_FLOOR_3", 0.3),
+  },
 
-interface VectorSearchTiming {
-  queryEmbeddingMs: number;
-  vectorSearchMs: number;
-  totalMs: number;
+  // Memory management
+  MAX_THRESHOLD_HISTORY: parseEnvInt("MAX_THRESHOLD_HISTORY", 10),
+
+  // Performance
+  DEFAULT_SEARCH_LIMIT: 10,
+  MAX_SEARCH_LIMIT: 100,
+
+  // Timeouts
+  SEARCH_TIMEOUT_MS: 30000,
+  EMBEDDING_TIMEOUT_MS: 5000,
+
+  // Precision
+  THRESHOLD_EPSILON: Number.EPSILON * 10,
+} as const;
+
+// Helper to access threshold floors
+function getThresholdFloor(level: 1 | 2 | 3): number {
+  const key =
+    `LEVEL_${level}` as keyof typeof VECTOR_SEARCH_CONFIG.THRESHOLD_FLOORS;
+  return VECTOR_SEARCH_CONFIG.THRESHOLD_FLOORS[key];
 }
 
 function clampThreshold(value: number): number {
@@ -64,34 +90,21 @@ function buildThresholdCandidates(
       : DEFAULT_MIN_SIMILARITY_THRESHOLD,
   );
 
-  // Parse configurable threshold floors from environment variables
-  const parseEnvFloat = (envVar: string, defaultValue: number): number => {
-    const value = process.env[envVar];
-    if (!value) return defaultValue;
-    const parsed = parseFloat(value);
-    return Number.isFinite(parsed) ? parsed : defaultValue;
-  };
-
-  const thresholdFloor1 = parseEnvFloat("VECTOR_THRESHOLD_FLOOR_1", 0.55);
-  const thresholdFloor2 = parseEnvFloat("VECTOR_THRESHOLD_FLOOR_2", 0.4);
-  const thresholdFloor3 = parseEnvFloat("VECTOR_THRESHOLD_FLOOR_3", 0.3);
-
   const candidates = [
     base,
-    Math.max(base - 0.1, thresholdFloor1),
-    Math.max(base - 0.25, thresholdFloor2),
-    thresholdFloor3,
+    Math.max(base - 0.1, getThresholdFloor(1)),
+    Math.max(base - 0.25, getThresholdFloor(2)),
+    getThresholdFloor(3),
   ];
-
-  // Use a more reliable epsilon for floating-point comparison
-  // Number.EPSILON * 10 provides better precision than hardcoded values
-  const THRESHOLD_EPSILON = Number.EPSILON * 10;
   const unique: number[] = [];
 
   for (const candidate of candidates) {
     const clamped = clampThreshold(candidate);
     if (
-      unique.some(existing => Math.abs(existing - clamped) < THRESHOLD_EPSILON)
+      unique.some(
+        existing =>
+          Math.abs(existing - clamped) < VECTOR_SEARCH_CONFIG.THRESHOLD_EPSILON,
+      )
     ) {
       continue;
     }
@@ -273,7 +286,159 @@ function transformResults(
 }
 
 /**
+ * Calculates optimal similarity threshold for vector search.
+ *
+ * Algorithm:
+ * 1. Generate multiple threshold candidates based on query complexity
+ * 2. Sort candidates in descending order (higher = more similar)
+ * 3. Apply floor constraints to prevent too-loose matching
+ * 4. Select threshold that balances precision and recall
+ *
+ * The multi-level floor system ensures quality results:
+ * - Floor 1 (0.55): Primary threshold for high-quality matches
+ * - Floor 2 (0.4): Fallback for broader search
+ * - Floor 3 (0.3): Minimum acceptable similarity
+ */
+function selectOptimalThreshold(
+  thresholdCandidates: number[],
+  logger: any,
+): number {
+  // Sort candidates from highest to lowest (most to least similar)
+  const sortedCandidates = [...thresholdCandidates].sort((a, b) => b - a);
+
+  // Default to highest threshold (most restrictive)
+  let selectedThreshold = sortedCandidates[0];
+
+  // Apply multi-tier fallback logic if we have enough candidates
+  if (sortedCandidates.length > 2) {
+    // Tier 1: Try second-highest if it meets floor 1 requirement (high quality)
+    if (sortedCandidates[1] >= getThresholdFloor(1)) {
+      selectedThreshold = sortedCandidates[1];
+    }
+    // Tier 2: Try third candidate if it meets floor 2 requirement (medium quality)
+    else if (sortedCandidates[2] >= getThresholdFloor(2)) {
+      selectedThreshold = sortedCandidates[2];
+    }
+    // Tier 3: Try fourth candidate if it meets floor 3 requirement (minimum quality)
+    else if (sortedCandidates[3] >= getThresholdFloor(3)) {
+      selectedThreshold = sortedCandidates[3];
+    }
+    // If none meet floor requirements, keep the highest (most restrictive)
+  }
+
+  logger.debug("Threshold selection", {
+    module: "vector_search",
+    method: "selectOptimalThreshold",
+    candidates: sortedCandidates,
+    selected: selectedThreshold,
+  });
+
+  return selectedThreshold;
+}
+
+/**
+ * Execute vector search with threshold fallback logic
+ */
+async function executeVectorSearchWithFallback(
+  queryEmbedding: number[],
+  thresholdCandidates: number[],
+  searchOptions: VectorSearchOptions,
+  logger: any,
+): Promise<{
+  results: VectorSearchResult[];
+  threshold: number;
+  timing: number;
+}> {
+  const attemptStart = Date.now();
+
+  // Single-pass at the lowest candidate
+  const minCandidate = Math.min(...thresholdCandidates);
+  searchOptions.minSimilarity = minCandidate;
+
+  const allResults = await searchSimilarVectors(
+    queryEmbedding,
+    searchOptions,
+    logger,
+  );
+
+  const timing = Date.now() - attemptStart;
+
+  // Pick the highest threshold that still yields results
+  const sortedDesc = [...thresholdCandidates].sort((a, b) => b - a);
+  let usedThreshold = minCandidate;
+  let vectorResults: VectorSearchResult[] = [];
+
+  for (const t of sortedDesc) {
+    const filtered = allResults.filter(r => r.similarity >= t);
+    if (filtered.length > 0) {
+      usedThreshold = t;
+      vectorResults = filtered;
+      break;
+    }
+  }
+
+  return { results: vectorResults, threshold: usedThreshold, timing };
+}
+
+/**
+ * Apply pagination to search results
+ */
+function applyPagination(
+  results: VectorSearchResult[],
+  limit: number,
+  offset: number,
+): VectorSearchResult[] {
+  const offsetResults = offset > 0 ? results.slice(offset) : results;
+  return offsetResults.slice(0, limit);
+}
+
+/**
+ * Log search metrics and performance data
+ */
+function logSearchMetrics(
+  logger: any,
+  request: VectorSearchRequest,
+  vectorResults: VectorSearchResult[],
+  apiResults: APIVectorSearchResult[],
+  usedThreshold: number,
+  thresholdHistory: number[],
+  fallbackUsed: boolean,
+  timing: VectorSearchTiming,
+): void {
+  logger.info("Vector search completed successfully", {
+    module: "vector_search/metrics",
+    method: "vectorSearch",
+    queryLength: request.query?.length,
+    totalResults: vectorResults.length,
+    returnedResults: apiResults.length,
+    limit: request.limit,
+    offset: request.offset,
+    threshold: usedThreshold,
+    thresholdHistory,
+    fallbackUsed,
+    timing,
+  });
+}
+
+/**
  * Main vector search service that orchestrates the entire search process
+ */
+/**
+ * Performs vector similarity search with automatic threshold optimization.
+ *
+ * This method uses embeddings to find semantically similar content, automatically
+ * selecting optimal similarity thresholds based on the query and available results.
+ *
+ * @param request - Search configuration including query, limits, and filters
+ * @param options - Service options including logger and threshold configuration
+ * @returns Search results with metadata including threshold and timing
+ *
+ * @example
+ * const results = await vectorSearch({
+ *   query: "machine learning tutorials",
+ *   limit: 10,
+ *   includeContent: true
+ * }, { logger });
  */
 export async function vectorSearch(
   request: VectorSearchRequest,
@@ -288,7 +453,6 @@ export async function vectorSearch(
     logger.info("Starting vector search", {
       module: "vector_search",
       method: "vectorSearch",
-      // Do not log raw queries
       queryLength: request.query?.length,
       limit: request.limit,
       offset: request.offset,
@@ -302,22 +466,23 @@ export async function vectorSearch(
     const queryEmbedding = await generateQueryEmbedding(request.query, options);
     queryEmbeddingTime = Date.now() - embeddingStart;
 
-    // Step 2: Transform filters and add pagination
+    // Step 2: Transform filters and prepare search options
     const searchOptions = transformFilters(request);
 
     // Implement offset by increasing limit and slicing results
-    // This is a simple approach; for large offsets, a cursor-based approach would be more efficient
     if (request.offset > 0) {
-      searchOptions.limit = (searchOptions.limit || 10) + request.offset;
+      searchOptions.limit =
+        (searchOptions.limit || VECTOR_SEARCH_CONFIG.DEFAULT_SEARCH_LIMIT) +
+        request.offset;
     }
 
-    // Step 3: Perform vector similarity search
+    // Step 3: Build threshold candidates and execute search
     const thresholdCandidates = buildThresholdCandidates(
       request.threshold,
       thresholdProvided,
     );
-    const thresholdHistory: number[] = [];
-    let usedThreshold = thresholdCandidates[thresholdCandidates.length - 1];
+
+    const thresholdHistory = [...thresholdCandidates];
 
     logger.debug("Vector search threshold candidates", {
       module: "vector_search",
@@ -325,47 +490,33 @@ export async function vectorSearch(
       thresholdCandidates,
       thresholdProvided,
     });
-    let vectorResults: VectorSearchResult[] = [];
 
-    // Record all candidates considered
-    thresholdHistory.push(...thresholdCandidates);
-    // Single-pass at the lowest candidate
-    const minCandidate = Math.min(...thresholdCandidates);
-    searchOptions.minSimilarity = minCandidate;
-    const attemptStart = Date.now();
-    const allResults = await searchSimilarVectors(
+    // Execute vector search with fallback logic
+    const searchResult = await executeVectorSearchWithFallback(
       queryEmbedding,
+      thresholdCandidates,
       searchOptions,
       logger,
     );
-    vectorSearchTime += Date.now() - attemptStart;
-    // Pick the highest threshold that still yields results
-    const sortedDesc = [...thresholdCandidates].sort((a, b) => b - a);
-    usedThreshold = minCandidate;
-    for (const t of sortedDesc) {
-      const filtered = allResults.filter(r => r.similarity >= t);
-      if (filtered.length > 0) {
-        usedThreshold = t;
-        vectorResults = filtered;
-        break;
-      }
-    }
-    // If no results at any threshold, keep empty vectorResults and usedThreshold=minCandidate
 
-    // Step 4: Apply offset by slicing results
-    const offsetResults =
-      request.offset > 0 ? vectorResults.slice(request.offset) : vectorResults;
+    vectorSearchTime = searchResult.timing;
+    const { results: vectorResults, threshold: usedThreshold } = searchResult;
 
-    // Step 5: Limit results to requested amount
-    const limitedResults = offsetResults.slice(0, request.limit);
-
-    // Step 6: Transform results to API format
-    const apiResults = transformResults(
-      limitedResults,
-      request,
-      request.offset,
+    // Step 4: Apply pagination
+    const paginatedResults = applyPagination(
+      vectorResults,
+      request.limit || VECTOR_SEARCH_CONFIG.DEFAULT_SEARCH_LIMIT,
+      request.offset || 0,
     );
 
+    // Step 5: Transform results to API format
+    const apiResults = transformResults(
+      paginatedResults,
+      request,
+      request.offset || 0,
+    );
+
+    // Step 6: Calculate timing and prepare response
     const totalTime = Date.now() - startTime;
     const timing: VectorSearchTiming = {
       queryEmbeddingMs: queryEmbeddingTime,
@@ -378,20 +529,17 @@ export async function vectorSearch(
       !thresholdProvided &&
       (vectorResults.length > 0 || usedThreshold !== thresholdHistory[0]);
 
-    logger.info("Vector search completed successfully", {
-      module: "vector_search/metrics",
-      method: "vectorSearch",
-      // Do not log raw queries
-      queryLength: request.query?.length,
-      totalResults: vectorResults.length,
-      returnedResults: apiResults.length,
-      limit: request.limit,
-      offset: request.offset,
-      threshold: usedThreshold,
+    // Step 7: Log metrics
+    logSearchMetrics(
+      logger,
+      request,
+      vectorResults,
+      apiResults,
+      usedThreshold,
       thresholdHistory,
       fallbackUsed,
       timing,
-    });
+    );
 
     // Calculate credits used (1 credit per search + 1 per result returned)
     const creditsUsed = 1 + apiResults.length;

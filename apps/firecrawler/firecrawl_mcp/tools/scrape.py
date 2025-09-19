@@ -366,7 +366,18 @@ def register_scrape_tools(mcp: FastMCP) -> None:
             "destructiveHint": False,   # Safe - only extracts content  
             "openWorldHint": True,      # Accesses external websites
             "idempotentHint": False     # Results may vary between calls
-        }
+        },
+        # Exclude all optional parameters from LLM schema
+        # Note: ctx is automatically handled by FastMCP and not exposed to LLM
+        exclude_args=[
+            "scrape_options",
+            "webhook", 
+            "max_concurrency",
+            "ignore_invalid_urls",
+            "auto_paginate",
+            "max_pages",
+            "max_results"
+        ]
     )
     async def scrape(
         ctx: Context,
@@ -408,32 +419,45 @@ def register_scrape_tools(mcp: FastMCP) -> None:
         )] = None
     ) -> Union[Document, BatchScrapeResponse, dict[str, Any]]:
         """
-        Scrape single or multiple URLs with automatic mode detection and status checking.
+        Scrape single or multiple URLs with automatic mode detection.
         
-        This unified tool automatically detects the operation mode based on parameters:
-        - If job_id provided: Status checking mode for batch operations (STATUS ONLY, NO DATA)
-        - If urls is string: Single URL scraping mode
-        - If urls is list: Batch URL scraping mode
+        This function intelligently handles both single URL scraping and batch scraping
+        based on the input parameters. It also supports status checking for ongoing jobs.
         
         Args:
-            ctx: MCP context for logging and progress reporting
-            urls: Single URL (string) or multiple URLs (list) to scrape
-            job_id: Job ID for checking batch scrape status
-            scrape_options: Optional scraping configuration
-            webhook: Webhook URL for batch completion notifications
-            max_concurrency: Maximum concurrent scraping operations
-            ignore_invalid_urls: Continue processing if some URLs are invalid
-            auto_paginate: Automatically fetch all result pages
-            max_pages: Maximum result pages to fetch
-            max_results: Maximum results to return
-            
+            urls: Single URL (string) or multiple URLs (list) to scrape. If None and job_id
+                is provided, checks status of existing job.
+            job_id: Existing job ID for status checking. When provided without urls,
+                returns status of the job rather than actual data.
+            scrape_options: Configuration for scraping including format, filters, and
+                extraction options. Supports markdown, html, json, screenshot formats.
+            ignore_invalid_urls: Continue processing if some URLs are invalid. Useful
+                for batch operations where some URLs might be malformed.
+            webhook: URL to receive notifications when batch scraping completes.
+            max_pages: Maximum number of result pages to fetch (for pagination).
+            max_results: Maximum total results to return across all pages.
+            max_concurrency: Maximum concurrent scraping operations (1-50).
+            auto_paginate: Automatically fetch all result pages. Disabled for status checks.
+            ctx: MCP context for logging and request metadata.
+        
         Returns:
-            Union[Document, BatchScrapeResponse, dict[str, Any]]: 
-                Document for single URL, BatchScrapeResponse for batch start, 
-                status summary dict for status checking (NO actual data)
-                
+            Dictionary containing either:
+            - Scraped content (single URL mode)
+            - Batch job status and initial results (batch mode)  
+            - Job status information (status check mode)
+        
         Raises:
-            ToolError: If operation fails or configuration is invalid
+            ToolError: When required parameters are missing or API call fails.
+        
+        Examples:
+            # Single URL scraping
+            >>> result = await scrape("https://example.com", scrape_options={"formats": ["markdown"]})
+            
+            # Batch scraping
+            >>> job = await scrape(["https://example1.com", "https://example2.com"])
+            
+            # Status checking
+            >>> status = await scrape(job_id="abc-123-def")
         """
         try:
             # Handle MCP serialization issue where arrays might be stringified

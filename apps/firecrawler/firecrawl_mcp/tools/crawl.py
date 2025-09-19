@@ -360,7 +360,31 @@ def register_crawl_tools(mcp: FastMCP) -> None:
             "destructiveHint": False,   # Safe - only extracts content
             "openWorldHint": True,      # Accesses external websites
             "idempotentHint": False     # Results may vary between calls
-        }
+        },
+        # Exclude all optional parameters from LLM schema
+        # Note: ctx is automatically handled by FastMCP and not exposed to LLM
+        exclude_args=[
+            "prompt",
+            "exclude_paths",
+            "include_paths",
+            "max_discovery_depth",
+            "sitemap",
+            "ignore_query_parameters",
+            "limit",
+            "crawl_entire_domain",
+            "allow_external_links",
+            "allow_subdomains",
+            "delay",
+            "max_concurrency",
+            "webhook",
+            "scrape_options",
+            "zero_data_retention",
+            "integration",
+            "auto_paginate",
+            "max_pages",
+            "max_results",
+            "max_wait_time"
+        ]
     )
     async def crawl(
         ctx: Context,

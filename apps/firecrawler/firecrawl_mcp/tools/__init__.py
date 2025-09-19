@@ -1,18 +1,22 @@
 """
-MCP Tools package for Firecrawl operations.
+Firecrawl MCP Tools Module
 
-This package contains all the MCP tools that expose Firecrawl functionality:
-- scrape: Single URL scraping with advanced options
-- batch_scrape: Multiple URL scraping with parallel processing  
-- batch_status: Check status of batch operations
-- crawl: Website crawling with unified status checking
-- extract: AI-powered structured data extraction with unified status checking
-- map: Website URL discovery and mapping
+This module provides MCP tool implementations for the Firecrawl API, enabling
+LLMs to perform web scraping, crawling, and content extraction tasks.
+
+Available Tools:
+- scrape: Single/batch URL scraping with multiple format support
+- crawl: Website crawling with depth control
+- extract: AI-powered structured data extraction
+- map: URL discovery and sitemap generation
 - firesearch: Web search with optional content extraction
-- firerag: Vector database semantic search without additional LLM synthesis
+- firerag: Vector database semantic search
 
-Each tool follows FastMCP patterns with proper validation, error handling,
-and progress reporting.
+Each tool follows MCP patterns with Context-based logging and proper error handling.
+
+Usage:
+    Tools are automatically registered with the MCP server and can be invoked
+    by LLM clients through the Model Context Protocol.
 """
 
 # Import implemented tools
