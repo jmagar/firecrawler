@@ -10,11 +10,11 @@ progress reporting, and proper error handling for AI-powered data extraction.
 """
 
 import logging
-from typing import Annotated, Any, Union
+from typing import Annotated, Any, Dict, Union
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from firecrawl.v2.types import AgentOptions, ExtractResponse, ScrapeOptions
+from firecrawl.v2.types import AgentOptions, ExtractResponse, ScrapeOptions  # Still import for internal use
 from firecrawl.v2.utils.error_handler import FirecrawlError
 from pydantic import Field
 
@@ -33,7 +33,7 @@ async def _handle_extract_start(
     allow_external_links: bool | None = None,
     enable_web_search: bool | None = None,
     show_sources: bool | None = None,
-    scrape_options: ScrapeOptions | None = None,
+    scrape_options: Dict[str, Any] | None = None,
     ignore_invalid_urls: bool | None = None,
     integration: str | None = None,
     agent: AgentOptions | None = None
@@ -94,20 +94,33 @@ async def _handle_extract_start(
         await ctx.report_progress(10, 100)
         await ctx.info(f"Validated {url_count} URLs, starting extraction")
 
+        # Build extraction kwargs
+        extract_kwargs = {
+            'urls': urls,
+            'prompt': prompt,
+            'schema': schema,
+            'system_prompt': system_prompt,
+            'allow_external_links': allow_external_links,
+            'enable_web_search': enable_web_search,
+            'show_sources': show_sources,
+            'ignore_invalid_urls': ignore_invalid_urls,
+            'integration': integration,
+            'agent': agent
+        }
+        
+        # Handle scrape_options conversion
+        if scrape_options:
+            if isinstance(scrape_options, dict):
+                # Convert dict to ScrapeOptions for SDK
+                extract_kwargs['scrape_options'] = ScrapeOptions(**scrape_options) if scrape_options else None
+            else:
+                extract_kwargs['scrape_options'] = scrape_options
+        
+        # Remove None values
+        extract_kwargs = {k: v for k, v in extract_kwargs.items() if v is not None}
+        
         # Perform the extraction
-        extraction_response = client.extract(
-            urls=urls,
-            prompt=prompt,
-            schema=schema,
-            system_prompt=system_prompt,
-            allow_external_links=allow_external_links,
-            enable_web_search=enable_web_search,
-            show_sources=show_sources,
-            scrape_options=scrape_options,
-            ignore_invalid_urls=ignore_invalid_urls,
-            integration=integration,
-            agent=agent
-        )
+        extraction_response = client.extract(**extract_kwargs)
 
         # Report completion based on response status
         if hasattr(extraction_response, 'status'):
@@ -293,9 +306,9 @@ def register_extract_tools(mcp: FastMCP) -> None:
             default=None,
             description="Whether to include source information in the response"
         ),
-        scrape_options: ScrapeOptions | None = Field(
+        scrape_options: Dict[str, Any] | None = Field(
             default=None,
-            description="Optional scraping configuration for content retrieval"
+            description="Optional scraping configuration (formats, headers, timeout, etc)"
         ),
         ignore_invalid_urls: bool | None = Field(
             default=None,

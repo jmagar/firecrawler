@@ -11,7 +11,7 @@ async patterns, intelligent parameter routing, and progress reporting.
 """
 
 import logging
-from typing import Annotated, Any, List, Union
+from typing import Annotated, Any, Dict, List, Union
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -20,7 +20,7 @@ from firecrawl.v2.types import (
     BatchScrapeResponse,
     Document,
     PaginationConfig,
-    ScrapeOptions,
+    ScrapeOptions,  # Still import for internal use
 )
 from firecrawl.v2.utils.error_handler import FirecrawlError
 from pydantic import Field
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 async def _handle_single_scrape(
     ctx: Context,
     url: str,
-    scrape_options: ScrapeOptions | None
+    scrape_options: Dict[str, Any] | None
 ) -> Document:
     """
     Handle single URL scraping mode.
@@ -63,34 +63,38 @@ async def _handle_single_scrape(
         # Perform the scrape
         await ctx.info(f"Scraping URL with options: {scrape_options is not None}")
         
-        # Unpack ScrapeOptions into individual keyword arguments for v2 API
+        # Convert dict to ScrapeOptions if needed, or use dict directly
         scrape_kwargs = {}
         if scrape_options:
-            # Manually map ScrapeOptions fields to avoid any internal field conflicts
-            field_mapping = {
-                'formats': scrape_options.formats,
-                'headers': scrape_options.headers,
-                'include_tags': scrape_options.include_tags,
-                'exclude_tags': scrape_options.exclude_tags,
-                'only_main_content': scrape_options.only_main_content,
-                'timeout': scrape_options.timeout,
-                'wait_for': scrape_options.wait_for,
-                'mobile': scrape_options.mobile,
-                'parsers': scrape_options.parsers,
-                'actions': scrape_options.actions,
-                'location': scrape_options.location,
-                'skip_tls_verification': scrape_options.skip_tls_verification,
-                'remove_base64_images': scrape_options.remove_base64_images,
-                'fast_mode': scrape_options.fast_mode,
-                'use_mock': scrape_options.use_mock,
-                'block_ads': scrape_options.block_ads,
-                'proxy': scrape_options.proxy,
-                'max_age': scrape_options.max_age,
-                'store_in_cache': scrape_options.store_in_cache,
-                'integration': scrape_options.integration,
-            }
-            # Only include non-None values
-            scrape_kwargs = {k: v for k, v in field_mapping.items() if v is not None}
+            # If it's a dict, use it directly for kwargs
+            if isinstance(scrape_options, dict):
+                scrape_kwargs = {k: v for k, v in scrape_options.items() if v is not None}
+            else:
+                # Legacy: handle if it's still a ScrapeOptions object
+                field_mapping = {
+                    'formats': scrape_options.formats,
+                    'headers': scrape_options.headers,
+                    'include_tags': scrape_options.include_tags,
+                    'exclude_tags': scrape_options.exclude_tags,
+                    'only_main_content': scrape_options.only_main_content,
+                    'timeout': scrape_options.timeout,
+                    'wait_for': scrape_options.wait_for,
+                    'mobile': scrape_options.mobile,
+                    'parsers': scrape_options.parsers,
+                    'actions': scrape_options.actions,
+                    'location': scrape_options.location,
+                    'skip_tls_verification': scrape_options.skip_tls_verification,
+                    'remove_base64_images': scrape_options.remove_base64_images,
+                    'fast_mode': scrape_options.fast_mode,
+                    'use_mock': scrape_options.use_mock,
+                    'block_ads': scrape_options.block_ads,
+                    'proxy': scrape_options.proxy,
+                    'max_age': scrape_options.max_age,
+                    'store_in_cache': scrape_options.store_in_cache,
+                    'integration': scrape_options.integration,
+                }
+                # Only include non-None values
+                scrape_kwargs = {k: v for k, v in field_mapping.items() if v is not None}
         
         # Debug: print what we're about to pass
         await ctx.info(f"DEBUG: Calling client.scrape with url='{url}' and kwargs: {list(scrape_kwargs.keys())}")
@@ -118,7 +122,7 @@ async def _handle_single_scrape(
 async def _handle_batch_scrape(
     ctx: Context,
     urls: List[str],
-    scrape_options: ScrapeOptions | None,
+    scrape_options: Dict[str, Any] | None,
     webhook: str | None,
     max_concurrency: int | None,
     ignore_invalid_urls: bool | None
@@ -169,39 +173,44 @@ async def _handle_batch_scrape(
         await ctx.report_progress(10, 100)
         await ctx.info(f"Validated {url_count} URLs, starting batch job")
 
-        # Start the batch scrape - v2 API takes individual params
+        # Start the batch scrape - convert dict to kwargs
+        batch_kwargs = {
+            'webhook': webhook,
+            'max_concurrency': max_concurrency,
+            'ignore_invalid_urls': ignore_invalid_urls
+        }
+        
         if scrape_options:
-            batch_response = client.start_batch_scrape(
-                urls,
-                formats=scrape_options.formats,
-                headers=scrape_options.headers,
-                include_tags=scrape_options.include_tags,
-                exclude_tags=scrape_options.exclude_tags,
-                only_main_content=scrape_options.only_main_content,
-                timeout=scrape_options.timeout,
-                wait_for=scrape_options.wait_for,
-                mobile=scrape_options.mobile,
-                parsers=scrape_options.parsers,
-                actions=scrape_options.actions,
-                location=scrape_options.location,
-                skip_tls_verification=scrape_options.skip_tls_verification,
-                remove_base64_images=scrape_options.remove_base64_images,
-                fast_mode=scrape_options.fast_mode,
-                block_ads=scrape_options.block_ads,
-                proxy=scrape_options.proxy,
-                max_age=scrape_options.max_age,
-                store_in_cache=scrape_options.store_in_cache,
-                webhook=webhook,
-                max_concurrency=max_concurrency,
-                ignore_invalid_urls=ignore_invalid_urls
-            )
-        else:
-            batch_response = client.start_batch_scrape(
-                urls,
-                webhook=webhook,
-                max_concurrency=max_concurrency,
-                ignore_invalid_urls=ignore_invalid_urls
-            )
+            if isinstance(scrape_options, dict):
+                # Add dict options to kwargs
+                batch_kwargs.update(scrape_options)
+            else:
+                # Legacy: handle if it's still a ScrapeOptions object
+                batch_kwargs.update({
+                    'formats': scrape_options.formats,
+                    'headers': scrape_options.headers,
+                    'include_tags': scrape_options.include_tags,
+                    'exclude_tags': scrape_options.exclude_tags,
+                    'only_main_content': scrape_options.only_main_content,
+                    'timeout': scrape_options.timeout,
+                    'wait_for': scrape_options.wait_for,
+                    'mobile': scrape_options.mobile,
+                    'parsers': scrape_options.parsers,
+                    'actions': scrape_options.actions,
+                    'location': scrape_options.location,
+                    'skip_tls_verification': scrape_options.skip_tls_verification,
+                    'remove_base64_images': scrape_options.remove_base64_images,
+                    'fast_mode': scrape_options.fast_mode,
+                    'block_ads': scrape_options.block_ads,
+                    'proxy': scrape_options.proxy,
+                    'max_age': scrape_options.max_age,
+                    'store_in_cache': scrape_options.store_in_cache,
+                })
+        
+        # Remove None values
+        batch_kwargs = {k: v for k, v in batch_kwargs.items() if v is not None}
+        
+        batch_response = client.start_batch_scrape(urls, **batch_kwargs)
 
         # Report completion
         await ctx.report_progress(100, 100)
@@ -371,9 +380,9 @@ def register_scrape_tools(mcp: FastMCP) -> None:
         )] = None,
         
         # Shared parameters (work in all modes)
-        scrape_options: ScrapeOptions | None = Field(
+        scrape_options: Dict[str, Any] | None = Field(
             default=None,
-            description="Optional scraping configuration including format, filters, and extraction options"
+            description="Optional scraping configuration (formats, headers, timeout, etc)"
         ),
         
         # Batch-specific parameters (ignored for single URL and status)

@@ -7,11 +7,11 @@ and flexible result formatting following FastMCP patterns.
 """
 
 import logging
-from typing import Annotated
+from typing import Annotated, Any, Dict
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from firecrawl.v2.types import ScrapeOptions, SearchData
+from firecrawl.v2.types import ScrapeOptions, SearchData  # Still import for internal use
 from firecrawl.v2.utils.error_handler import FirecrawlError
 from pydantic import Field
 
@@ -74,9 +74,9 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
             ge=1000,
             le=300000
         ),
-        scrape_options: ScrapeOptions | None = Field(
+        scrape_options: Dict[str, Any] | None = Field(
             default=None,
-            description="Optional scraping configuration to extract full content from search results"
+            description="Optional scraping configuration (formats, headers, timeout, etc)"
         )
     ) -> SearchData:
         """
@@ -167,6 +167,15 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
 
             # Perform the search using the client's search method
             await ctx.info("Executing web search")
+            
+            # Convert scrape_options dict to ScrapeOptions if needed
+            scrape_opts = None
+            if scrape_options:
+                if isinstance(scrape_options, dict):
+                    scrape_opts = ScrapeOptions(**scrape_options)
+                else:
+                    scrape_opts = scrape_options
+            
             search_data = client.search(
                 query=query,
                 sources=sources,
@@ -176,7 +185,7 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
                 tbs=tbs,
                 ignore_invalid_urls=ignore_invalid_urls,
                 timeout=timeout,
-                scrape_options=scrape_options
+                scrape_options=scrape_opts
             )
 
             # Report progress
