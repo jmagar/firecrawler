@@ -18,7 +18,7 @@ export function shouldParsePDF(parsers?: Parsers): boolean {
   return parsers.some(parser => {
     if (parser === "pdf") return true;
     if (typeof parser === "object" && parser !== null && "type" in parser) {
-      return (parser as any).type === "pdf";
+      return parser.type === "pdf";
     }
     return false;
   });
@@ -27,13 +27,12 @@ export function shouldParsePDF(parsers?: Parsers): boolean {
 export function getPDFMaxPages(parsers?: Parsers): number | undefined {
   if (!parsers) return undefined;
   const pdfParser = parsers.find(parser => {
-    if (typeof parser === "object" && parser !== null && "type" in parser) {
-      return (parser as any).type === "pdf";
-    }
-    return false;
+    return (
+      typeof parser === "object" && parser !== null && parser.type === "pdf"
+    );
   });
-  if (pdfParser && typeof pdfParser === "object" && "maxPages" in pdfParser) {
-    return (pdfParser as any).maxPages;
+  if (pdfParser && typeof pdfParser === "object") {
+    return pdfParser.maxPages;
   }
   return undefined;
 }

@@ -534,7 +534,12 @@ const crawlerOptions = z
     crawlEntireDomain: z.boolean().optional(),
     allowExternalLinks: z.boolean().default(false),
     allowSubdomains: z.boolean().default(false),
-    ignoreRobotsTxt: z.boolean().default(false),
+    ignoreRobotsTxt: z.boolean().default(true),
+    robotsUserAgents: z
+      .string()
+      .array()
+      .optional()
+      .describe("Custom user agents to check in robots.txt"),
     sitemap: z.enum(["skip", "include"]).default("include"),
     deduplicateSimilarURLs: z.boolean().default(true),
     ignoreQueryParameters: z.boolean().default(false),

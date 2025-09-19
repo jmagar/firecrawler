@@ -62,6 +62,7 @@ export class WebCrawler {
   private allowExternalContentLinks: boolean;
   private allowSubdomains: boolean;
   private ignoreRobotsTxt: boolean;
+  private robotsUserAgents: string[];
   private regexOnFullURL: boolean;
   private logger: typeof _logger;
   private sitemapsHit: Set<string> = new Set();
@@ -83,7 +84,8 @@ export class WebCrawler {
     allowBackwardCrawling = false,
     allowExternalContentLinks = false,
     allowSubdomains = false,
-    ignoreRobotsTxt = false,
+    ignoreRobotsTxt = true,
+    robotsUserAgents,
     regexOnFullURL = false,
     maxDiscoveryDepth,
     currentDiscoveryDepth,
@@ -103,6 +105,7 @@ export class WebCrawler {
     allowExternalContentLinks?: boolean;
     allowSubdomains?: boolean;
     ignoreRobotsTxt?: boolean;
+    robotsUserAgents?: string[];
     regexOnFullURL?: boolean;
     maxDiscoveryDepth?: number;
     currentDiscoveryDepth?: number;
@@ -125,7 +128,11 @@ export class WebCrawler {
     this.allowBackwardCrawling = allowBackwardCrawling ?? false;
     this.allowExternalContentLinks = allowExternalContentLinks ?? false;
     this.allowSubdomains = allowSubdomains ?? false;
-    this.ignoreRobotsTxt = ignoreRobotsTxt ?? false;
+    this.ignoreRobotsTxt = ignoreRobotsTxt ?? true;
+    this.robotsUserAgents = robotsUserAgents ?? [
+      "FireCrawlAgent",
+      "FirecrawlAgent",
+    ];
     this.regexOnFullURL = regexOnFullURL ?? false;
     this.zeroDataRetention = zeroDataRetention ?? false;
     this.logger = _logger.child({
@@ -625,9 +632,11 @@ export class WebCrawler {
 
   private isRobotsAllowed(
     url: string,
-    ignoreRobotsTxt: boolean = false,
+    ignoreRobotsTxt: boolean = true,
   ): boolean {
-    return ignoreRobotsTxt ? true : isUrlAllowedByRobots(url, this.robots);
+    return ignoreRobotsTxt
+      ? true
+      : isUrlAllowedByRobots(url, this.robots, this.robotsUserAgents);
   }
 
   public isFile(url: string): boolean {

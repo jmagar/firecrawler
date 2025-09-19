@@ -144,19 +144,16 @@ const mockACUC: () => AuthCreditUsageChunk = () => ({
   },
   concurrency: (() => {
     const DEFAULT = 16;
-    const MAX_WORKERS_PER_QUEUE = Number.parseInt(
-      process.env.MAX_WORKERS_PER_QUEUE || "256",
-      10,
-    );
-    const envValue = process.env.NUM_WORKERS_PER_QUEUE;
-    if (!envValue || envValue.trim() === "") {
-      return DEFAULT;
-    }
-    const parsed = Number.parseInt(envValue, 10);
-    if (isNaN(parsed) || parsed <= 0) {
-      return DEFAULT;
-    }
-    return Math.max(1, Math.min(parsed, MAX_WORKERS_PER_QUEUE));
+    const rawUpper = process.env.MAX_WORKERS_PER_QUEUE?.trim() ?? "";
+    const parsedUpper = rawUpper !== "" ? Number.parseInt(rawUpper, 10) : 256;
+    const HARD_MAX =
+      Number.isFinite(parsedUpper) && parsedUpper > 0 ? parsedUpper : 256;
+
+    const raw = process.env.NUM_WORKERS_PER_QUEUE?.trim() ?? "";
+    const n = raw !== "" ? Number.parseInt(raw, 10) : DEFAULT;
+    const safe = Number.isFinite(n) && n > 0 ? n : DEFAULT;
+
+    return Math.min(HARD_MAX, Math.max(1, safe));
   })(),
   flags: null,
   is_extract: false,
@@ -229,7 +226,6 @@ export async function getACUC(
             error instanceof Error ? error.message : String(error)
           }`,
         );
-        // Preserve original error for debugging
         (wrappedError as any).cause = originalError;
         throw wrappedError;
       }
@@ -364,7 +360,6 @@ export async function getACUCTeam(
             error instanceof Error ? error.message : String(error)
           }`,
         );
-        // Preserve original error for debugging
         (wrappedError as any).cause = originalError;
         throw wrappedError;
       }
@@ -451,16 +446,21 @@ async function supaAuthenticateUser(
     };
   }
 
+  const trustProxy = Boolean(req.app?.get?.("trust proxy"));
   const xff = Array.isArray(req.headers["x-forwarded-for"])
     ? req.headers["x-forwarded-for"][0]
     : (req.headers["x-forwarded-for"] as string | undefined);
   const firstHop = xff?.split(",")[0]?.trim();
+  const candidateIP =
+    (trustProxy && firstHop) || req.ip || req.socket.remoteAddress || "unknown";
+  const previewIpHeader =
+    typeof req.headers["x-preview-ip"] === "string"
+      ? req.headers["x-preview-ip"].split(",")[0].trim()
+      : undefined;
   const incomingIP =
-    (req.app?.get?.("trust proxy") && firstHop) ||
-    (req.headers["x-preview-ip"] as string | undefined) ||
-    req.ip ||
-    req.socket.remoteAddress ||
-    "unknown";
+    token === process.env.PREVIEW_TOKEN && trustProxy && previewIpHeader
+      ? previewIpHeader
+      : candidateIP;
   const iptoken = incomingIP + token;
 
   let rateLimiter: RateLimiterRedis;

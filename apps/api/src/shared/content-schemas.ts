@@ -6,9 +6,9 @@ import { protocolIncluded, checkUrl } from "../lib/validateUrl";
  */
 export const url = z.preprocess(
   x => {
-    if (!protocolIncluded(x as string)) {
-      x = `http://${x}`;
-    }
+    if (typeof x !== "string") return x;
+    const s = x.trim();
+    return protocolIncluded(s) ? s : `http://${s}`;
 
     // transforming the query parameters is breaking certain sites, so we're not doing it - mogery
     // try {
@@ -19,20 +19,11 @@ export const url = z.preprocess(
     //   }
     // } catch (e) {
     // }
-
-    return x;
   },
   z
     .string()
     .url()
     .regex(/^https?:\/\//i, "URL uses unsupported protocol")
-    .refine(
-      x =>
-        /(\.[a-zA-Z0-9-\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F]{2,}|\.xn--[a-zA-Z0-9-]{1,})(:\d+)?([\/?#]|$)/i.test(
-          x,
-        ),
-      "URL must have a valid top-level domain or be a valid path",
-    )
     .refine(x => {
       try {
         checkUrl(x as string);
@@ -51,6 +42,7 @@ export const generateLLMsTextRequestSchema = z.object({
   url: url.describe("The URL to generate text from"),
   maxUrls: z
     .number()
+    .int()
     .min(1)
     .max(5000)
     .default(10)

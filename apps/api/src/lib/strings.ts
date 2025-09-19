@@ -9,5 +9,5 @@ export const BLOCKLISTED_URL_MESSAGE = isSelfHosted()
  * Useful for case-insensitive language comparisons.
  */
 export function normalizeLanguage(value: string | undefined): string {
-  return value?.trim().toLowerCase() || "";
+  return value?.trim().replace(/_/g, "-").toLowerCase() || "";
 }

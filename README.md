@@ -739,7 +739,7 @@ Firecrawl Cloud is available at [firecrawl.dev](https://firecrawl.dev) and offer
 
 We love contributions! Please read our [contributing guide](CONTRIBUTING.md) before submitting a pull request. If you'd like to self-host, refer to the [self-hosting guide](SELF_HOST.md).
 
-_It is the sole responsibility of the end users to respect websites' policies when scraping, searching and crawling with Firecrawl. Users are advised to adhere to the applicable privacy policies and terms of use of the websites prior to initiating any scraping activities. By default, Firecrawl respects the directives specified in the websites' robots.txt files when crawling. By utilizing Firecrawl, you expressly agree to comply with these conditions._
+_It is the sole responsibility of the end users to respect websites' policies when scraping, searching and crawling with Firecrawl. Users are advised to adhere to the applicable privacy policies and terms of use of the websites prior to initiating any scraping activities. By default, Firecrawl ignores robots.txt directives to provide maximum crawling flexibility. Users can enable robots.txt compliance by setting `ignoreRobotsTxt: false` in their configuration. By utilizing Firecrawl, you expressly agree to comply with these conditions._
 
 ## Contributors
 

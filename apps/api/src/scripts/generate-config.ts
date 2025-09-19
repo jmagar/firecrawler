@@ -119,7 +119,7 @@ const DEFAULT_VALUES = {
     maxDepth: 10,
     allowExternalLinks: false,
     allowSubdomains: false,
-    ignoreRobotsTxt: false,
+    ignoreRobotsTxt: true,
     sitemap: "include" as const,
     deduplicateSimilarURLs: true,
     ignoreQueryParameters: false,
@@ -134,7 +134,7 @@ const DEFAULT_VALUES = {
   },
   embeddings: {
     enabled: false,
-    model: "Qwen/Qwen2.5-0.5B-Instruct",
+    model: "text-embedding-3-small",
     provider: "tei",
     dimension: 1024,
     maxContentLength: 8000,
@@ -325,7 +325,7 @@ function generateYamlComments(): string {
 # 
 # This file was auto-generated from your current environment variables.
 # Place this file as 'defaults.yaml' in your project root to set default
-# values for API requests. YAML configuration takes precedence over request parameters.
+# values for API requests. FIRECRAWL_CONFIG_OVERRIDE takes highest precedence.
 #
 # Configuration precedence (highest to lowest):
 # FIRECRAWL_CONFIG_OVERRIDE > YAML (with env substitutions) > request params > defaults

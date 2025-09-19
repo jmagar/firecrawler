@@ -96,6 +96,12 @@ repos:
         args: ["-c", "pyproject.toml", "-ll", "-q"]
         files: ^apps/firecrawler/firecrawl_mcp/
         exclude: ^apps/firecrawler/firecrawl_mcp/tests/
+      - id: bandit
+        name: bandit-security-check-push
+        description: "Run Bandit recursively on push"
+        stages: [push]
+        pass_filenames: false
+        args: ["-c", "pyproject.toml", "-ll", "-q", "-r", "apps/firecrawler/firecrawl_mcp"]
 
 # Global configuration
 default_language_version:

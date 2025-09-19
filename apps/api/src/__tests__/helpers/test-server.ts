@@ -43,7 +43,7 @@ export async function createTestEchoServer(): Promise<TestEchoServer> {
         <body>
           <h1>Test Echo Server</h1>
           <p>This is a test server for E2E tests.</p>
-          <div id="headers">${JSON.stringify(req.headers)}</div>
+          <div id="headers">${JSON.stringify(req.headers).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
         </body>
       </html>
     `);
@@ -60,7 +60,12 @@ export async function createTestEchoServer(): Promise<TestEchoServer> {
           server,
           close: () =>
             new Promise(resolveClose => {
-              server.close(() => resolveClose());
+              server.close(error => {
+                if (error) {
+                  console.error("Test server close error:", error);
+                }
+                resolveClose();
+              });
             }),
         });
       } else {

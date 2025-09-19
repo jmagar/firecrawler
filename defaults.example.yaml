@@ -144,8 +144,8 @@ crawling:
   # Allow crawling subdomains of the target domain
   allowSubdomains: ${ALLOW_SUBDOMAINS:-false}
   
-  # Ignore robots.txt restrictions
-  ignoreRobotsTxt: ${IGNORE_ROBOTS_TXT:-false}
+  # Ignore robots.txt restrictions (default: true - robots.txt is ignored by default)
+  ignoreRobotsTxt: ${IGNORE_ROBOTS_TXT:-true}
   
   # Sitemap handling: include or skip
   sitemap: ${SITEMAP_MODE:-include}

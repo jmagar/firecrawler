@@ -8,90 +8,117 @@ import { describe, it, expect } from "@jest/globals";
 describe("GitHub Metadata Extraction", () => {
   describe("extractGitHubMetadata", () => {
     describe("Edge URL parsing", () => {
-      it("should handle extensionless files in blob URLs", () => {
-        const result = extractGitHubMetadata(
-          "https://github.com/org/repo/blob/main/LICENSE",
-        );
-        expect(result?.file_path).toBe("LICENSE");
-        expect(result?.repository_org).toBe("org");
-        expect(result?.repository_name).toBe("repo");
-        expect(result?.branch_version).toBe("main");
-        expect(result?.is_raw_file).toBe(false);
-        expect(result?.file_extension).toBeUndefined();
-      });
-
-      it("should handle Makefile in blob URLs", () => {
-        const result = extractGitHubMetadata(
-          "https://github.com/microsoft/typescript/blob/main/Makefile",
-        );
-        expect(result?.file_path).toBe("Makefile");
-        expect(result?.repository_org).toBe("microsoft");
-        expect(result?.repository_name).toBe("typescript");
-        expect(result?.branch_version).toBe("main");
-        expect(result?.is_raw_file).toBe(false);
-        expect(result?.file_extension).toBeUndefined();
-      });
-
-      it("should handle GitHub repo root URLs without file_path", () => {
-        const result = extractGitHubMetadata(
-          "https://github.com/facebook/react",
-        );
-        expect(result?.file_path).toBeUndefined();
-        expect(result?.repository_org).toBe("facebook");
-        expect(result?.repository_name).toBe("react");
-        expect(result?.branch_version).toBeUndefined();
-        expect(result?.is_raw_file).toBe(false);
-        expect(result?.file_extension).toBeUndefined();
-      });
-
-      it("should handle raw.githubusercontent.com URLs", () => {
-        const result = extractGitHubMetadata(
-          "https://raw.githubusercontent.com/vercel/next.js/canary/package.json",
-        );
-        expect(result?.file_path).toBe("package.json");
-        expect(result?.repository_org).toBe("vercel");
-        expect(result?.repository_name).toBe("next.js");
-        expect(result?.branch_version).toBe("canary");
-        expect(result?.is_raw_file).toBe(true);
-        expect(result?.file_extension).toBe("json");
-      });
-
-      it("should handle raw.githubusercontent.com URLs with extensionless files", () => {
-        const result = extractGitHubMetadata(
-          "https://raw.githubusercontent.com/torvalds/linux/master/Kconfig",
-        );
-        expect(result?.file_path).toBe("Kconfig");
-        expect(result?.repository_org).toBe("torvalds");
-        expect(result?.repository_name).toBe("linux");
-        expect(result?.branch_version).toBe("master");
-        expect(result?.is_raw_file).toBe(true);
-        expect(result?.file_extension).toBeUndefined();
-      });
-
-      it("should handle nested directory paths in blob URLs", () => {
-        const result = extractGitHubMetadata(
-          "https://github.com/nodejs/node/blob/main/lib/internal/bootstrap/node.js",
-        );
-        // Current implementation splits at the first file-like segment
-        expect(result?.file_path).toBe("node.js");
-        expect(result?.repository_org).toBe("nodejs");
-        expect(result?.repository_name).toBe("node");
-        expect(result?.branch_version).toBe("main/lib/internal/bootstrap");
-        expect(result?.is_raw_file).toBe(false);
-        expect(result?.file_extension).toBe("js");
+      test.each([
+        {
+          description: "should handle extensionless files in blob URLs",
+          url: "https://github.com/org/repo/blob/main/LICENSE",
+          expected: {
+            file_path: "LICENSE",
+            repository_org: "org",
+            repository_name: "repo",
+            branch_version: "main",
+            is_raw_file: false,
+            file_extension: undefined,
+          },
+        },
+        {
+          description: "should handle Makefile in blob URLs",
+          url: "https://github.com/microsoft/typescript/blob/main/Makefile",
+          expected: {
+            file_path: "Makefile",
+            repository_org: "microsoft",
+            repository_name: "typescript",
+            branch_version: "main",
+            is_raw_file: false,
+            file_extension: undefined,
+          },
+        },
+        {
+          description: "should handle GitHub repo root URLs without file_path",
+          url: "https://github.com/facebook/react",
+          expected: {
+            file_path: undefined,
+            repository_org: "facebook",
+            repository_name: "react",
+            branch_version: undefined,
+            is_raw_file: false,
+            file_extension: undefined,
+          },
+        },
+        {
+          description: "should handle raw.githubusercontent.com URLs",
+          url: "https://raw.githubusercontent.com/vercel/next.js/canary/package.json",
+          expected: {
+            file_path: "package.json",
+            repository_org: "vercel",
+            repository_name: "next.js",
+            branch_version: "canary",
+            is_raw_file: true,
+            file_extension: "json",
+          },
+        },
+        {
+          description:
+            "should handle raw.githubusercontent.com URLs with extensionless files",
+          url: "https://raw.githubusercontent.com/torvalds/linux/master/Kconfig",
+          expected: {
+            file_path: "Kconfig",
+            repository_org: "torvalds",
+            repository_name: "linux",
+            branch_version: "master",
+            is_raw_file: true,
+            file_extension: undefined,
+          },
+        },
+        {
+          description: "should handle nested directory paths in blob URLs",
+          url: "https://github.com/nodejs/node/blob/main/lib/internal/bootstrap/node.js",
+          expected: {
+            file_path: "lib/internal/bootstrap/node.js",
+            repository_org: "nodejs",
+            repository_name: "node",
+            branch_version: "main",
+            is_raw_file: false,
+            file_extension: "js",
+          },
+        },
+        {
+          description: "should handle github.com raw paths",
+          url: "https://github.com/org/repo/raw/main/path/to/file.txt",
+          expected: {
+            file_path: "to/file.txt",
+            repository_org: "org",
+            repository_name: "repo",
+            branch_version: "main/path",
+            is_raw_file: false,
+            file_extension: "txt",
+          },
+        },
+        {
+          description: "should handle URL-encoded characters in paths",
+          url: "https://github.com/org/repo/blob/main/file%20with%20spaces.md",
+          expected: {
+            file_path: "file with spaces.md",
+            repository_org: "org",
+            repository_name: "repo",
+            branch_version: "main",
+            is_raw_file: false,
+            file_extension: "md",
+          },
+        },
+      ])("$description", ({ url, expected }) => {
+        const result = extractGitHubMetadata(url);
+        expect(result?.file_path).toBe(expected.file_path);
+        expect(result?.repository_org).toBe(expected.repository_org);
+        expect(result?.repository_name).toBe(expected.repository_name);
+        expect(result?.branch_version).toBe(expected.branch_version);
+        expect(result?.is_raw_file).toBe(expected.is_raw_file);
+        expect(result?.file_extension).toBe(expected.file_extension);
       });
 
       it("should return null for non-GitHub URLs", () => {
         const result = extractGitHubMetadata("https://example.com/some/path");
         expect(result).toBeNull();
-      });
-
-      it("should handle URL-encoded characters in paths", () => {
-        const result = extractGitHubMetadata(
-          "https://github.com/org/repo/blob/main/file%20with%20spaces.md",
-        );
-        expect(result?.file_path).toBe("file with spaces.md");
-        expect(result?.file_extension).toBe("md");
       });
     });
   });
@@ -111,14 +138,14 @@ describe("GitHub Metadata Extraction", () => {
           pip install my-package
         `;
 
-        // URL with /docs/ gets classified as documentation first, content doesn't override
+        // URL filename pattern takes precedence over /docs/ path
         const result = classifyContentType(
           "https://example.com/docs/install",
           content,
         );
-        expect(result.content_type).toBe("documentation");
-        expect(result.confidence).toBe(0.7);
-        expect(result.indicators).toContain("documentation_pattern");
+        expect(result.content_type).toBe("installation_guide");
+        expect(result.confidence).toBe(0.85);
+        expect(result.indicators).toContain("filename_installation");
         expect(result.indicators).toContain("content_installation_indicators");
       });
 
@@ -141,7 +168,8 @@ describe("GitHub Metadata Extraction", () => {
           content,
         );
         expect(result.content_type).toBe("installation_guide");
-        expect(result.confidence).toBe(0.7);
+        expect(result.confidence).toBe(0.85);
+        expect(result.indicators).toContain("filename_installation");
         expect(result.indicators).toContain("content_installation_indicators");
       });
 
@@ -306,7 +334,7 @@ describe("GitHub Metadata Extraction", () => {
       expect(result.github?.file_path).toBe("Makefile");
       expect(result.github?.is_raw_file).toBe(true);
       expect(result.github?.file_extension).toBeUndefined();
-      expect(result.file_metadata?.is_code_file).toBe(false); // Makefile not detected as code by current patterns
+      expect(result.file_metadata?.is_code_file).toBe(true); // Makefile is detected as code
     });
 
     it("should extract metadata for GitHub repo root", () => {

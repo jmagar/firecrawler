@@ -255,7 +255,7 @@ crawling:
   # Crawling behavior
   allowExternalLinks: false
   allowSubdomains: false
-  ignoreRobotsTxt: false
+  ignoreRobotsTxt: true  # Default: true - robots.txt is ignored by default
   
   # Content optimization
   sitemap: include

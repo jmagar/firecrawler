@@ -113,10 +113,12 @@ export function extractGitHubMetadata(
         let branchVersion: string | undefined;
         let fileExtension: string | undefined;
 
-        // Check for blob or tree paths
+        // Check for blob, tree, or raw paths
         if (
           remainingParts.length >= 2 &&
-          (remainingParts[0] === "blob" || remainingParts[0] === "tree")
+          (remainingParts[0] === "blob" ||
+            remainingParts[0] === "tree" ||
+            remainingParts[0] === "raw")
         ) {
           const afterMarker = remainingParts.slice(1);
           const idx = afterMarker.findIndex(seg => /\.[a-z0-9]+$/i.test(seg));
@@ -124,8 +126,11 @@ export function extractGitHubMetadata(
             branchVersion = afterMarker.slice(0, idx).join("/");
             filePath = afterMarker.slice(idx).join("/");
             fileExtension = filePath.split(".").pop()?.toLowerCase();
-          } else if (remainingParts[0] === "blob" && afterMarker.length >= 2) {
-            // Handle extensionless files under /blob/:ref/...
+          } else if (
+            (remainingParts[0] === "blob" || remainingParts[0] === "raw") &&
+            afterMarker.length >= 2
+          ) {
+            // Handle extensionless files under /blob|raw/:ref/...
             branchVersion = afterMarker[0];
             filePath = afterMarker.slice(1).join("/");
           } else {
@@ -180,10 +185,27 @@ export function classifyContentType(
       confidence = 0.95;
       indicators.push("filename_readme");
     }
+    // Changelog detection
+    else if (/^change(s|log)(\.|$)|^changelog(\.|$)/i.test(filename)) {
+      contentType = "changelog";
+      confidence = 0.95;
+      indicators.push("filename_changelog");
+    }
+    // Installation guide detection
+    else if (
+      /^install(\.|$)|^installation(\.|$)|^getting[-_]started(\.|$)/i.test(
+        filename,
+      )
+    ) {
+      contentType = "installation_guide";
+      confidence = 0.85;
+      indicators.push("filename_installation");
+    }
     // API documentation patterns
     else if (
       pathname.includes("/api/") ||
       pathname.includes("/docs/api") ||
+      pathname.includes("/api-reference") ||
       pathname.includes("/reference/") ||
       /\bapi\b/i.test(filename)
     ) {
@@ -195,6 +217,7 @@ export function classifyContentType(
     else if (
       pathname.includes("/tutorial") ||
       pathname.includes("/guide") ||
+      pathname.includes("/guides") ||
       pathname.includes("/getting-started") ||
       pathname.includes("/quickstart")
     ) {
@@ -226,7 +249,8 @@ export function classifyContentType(
     // Documentation files
     else if (
       filename.match(/\.(md|rst|txt)$/i) ||
-      pathname.includes("/docs/")
+      pathname.includes("/docs/") ||
+      pathname.endsWith("/docs")
     ) {
       contentType = "documentation";
       confidence = 0.7;
@@ -336,7 +360,11 @@ function extractDomainMetadata(url: string): DomainMetadata {
     // Common documentation subdomains
     else if (
       subdomain &&
-      ["docs", "documentation", "api", "dev", "developers"].includes(subdomain)
+      subdomain
+        .split(".")
+        .some(seg =>
+          ["docs", "documentation", "api", "dev", "developers"].includes(seg),
+        )
     ) {
       isDocumentationSite = true;
       if (subdomain === "api") documentationType = "api";
@@ -396,9 +424,22 @@ function detectProgrammingLanguage(
 ): string | undefined {
   if (!filePath && !content) return undefined;
 
-  // Extension-based detection
+  // Basename / extension-based detection
   if (filePath) {
-    const extension = filePath.split(".").pop()?.toLowerCase();
+    const base = filePath.split("/").pop()!;
+    // Common extensionless tech files
+    if (/^dockerfile(\.\..+)?$/i.test(base)) return "dockerfile";
+    if (/^makefile$/i.test(base)) return "makefile";
+    if (
+      /^gemfile$/i.test(base) ||
+      /^podfile$/i.test(base) ||
+      /^brewfile$/i.test(base)
+    )
+      return "ruby";
+
+    const extension = base.includes(".")
+      ? base.split(".").pop()!.toLowerCase()
+      : undefined;
     const extensionMap: Record<string, string> = {
       js: "javascript",
       jsx: "javascript",
@@ -449,6 +490,15 @@ function detectProgrammingLanguage(
   // Content-based detection (basic patterns)
   if (content) {
     const lowerContent = content.toLowerCase();
+
+    // Common extensionless files by content
+    if (
+      /^from\s+\w+/im.test(content) ||
+      /^\s*#\s*syntax\s*=.*docker/i.test(content)
+    )
+      return "dockerfile";
+    if (/^(\w+)\s*:\s*(.+)?\n(\t| {2,})/m.test(content)) return "makefile";
+    if (/^#!\/usr\/bin\/env\s+(bash|sh|zsh|fish)/m.test(content)) return "bash";
 
     if (lowerContent.includes("def ") && lowerContent.includes("import "))
       return "python";
@@ -515,9 +565,16 @@ function countWords(content: string): number {
 function isCodeFile(filePath?: string, content?: string): boolean {
   if (!filePath && !content) return false;
 
-  // Check by extension
+  // Check by extension and extensionless tech files
   if (filePath) {
-    const extension = filePath.split(".").pop()?.toLowerCase();
+    const base = filePath.split("/").pop()!;
+    // Check for extensionless tech files
+    if (/^dockerfile(\..*)?$/i.test(base) || /^makefile$/i.test(base))
+      return true;
+
+    const extension = base.includes(".")
+      ? base.split(".").pop()!.toLowerCase()
+      : undefined;
     const codeExtensions = [
       "js",
       "jsx",
@@ -590,7 +647,9 @@ function isCodeFile(filePath?: string, content?: string): boolean {
       /var\s+\w+\s*=/,
     ];
 
-    const hasCodePatterns = codePatterns.some(pattern => pattern.test(content));
+    const hasCodePatterns =
+      /^#!\/usr\/bin\/env\s+(bash|sh|zsh|fish|node|python3?)/m.test(content) ||
+      codePatterns.some(pattern => pattern.test(content));
     if (hasCodePatterns) return true;
   }
 
@@ -636,10 +695,12 @@ export function extractDocumentMetadata(
           return fileParts.join("/");
         }
 
-        // For github.com URLs with blob/tree: org/repo/blob|tree/branch/path...
+        // For github.com URLs with blob/tree/raw: org/repo/blob|tree|raw/branch/path...
         if (
           remainingParts.length >= 3 &&
-          (remainingParts[0] === "blob" || remainingParts[0] === "raw")
+          (remainingParts[0] === "blob" ||
+            remainingParts[0] === "tree" ||
+            remainingParts[0] === "raw")
         ) {
           const [marker, branch, ...fileParts] = remainingParts;
           return fileParts.join("/");

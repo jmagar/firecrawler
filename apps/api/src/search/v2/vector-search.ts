@@ -64,11 +64,23 @@ function buildThresholdCandidates(
       : DEFAULT_MIN_SIMILARITY_THRESHOLD,
   );
 
+  // Parse configurable threshold floors from environment variables
+  const parseEnvFloat = (envVar: string, defaultValue: number): number => {
+    const value = process.env[envVar];
+    if (!value) return defaultValue;
+    const parsed = parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : defaultValue;
+  };
+
+  const thresholdFloor1 = parseEnvFloat("VECTOR_THRESHOLD_FLOOR_1", 0.55);
+  const thresholdFloor2 = parseEnvFloat("VECTOR_THRESHOLD_FLOOR_2", 0.4);
+  const thresholdFloor3 = parseEnvFloat("VECTOR_THRESHOLD_FLOOR_3", 0.3);
+
   const candidates = [
     base,
-    Math.max(base - 0.1, 0.55),
-    Math.max(base - 0.25, 0.4),
-    0.3,
+    Math.max(base - 0.1, thresholdFloor1),
+    Math.max(base - 0.25, thresholdFloor2),
+    thresholdFloor3,
   ];
 
   // Use a more reliable epsilon for floating-point comparison
@@ -99,10 +111,10 @@ async function generateQueryEmbedding(
   const { logger = _logger, costTracking, teamId } = options;
   const start = Date.now();
 
-  // Task 1: Call getVectorDimension() once at function start
-  const configuredVectorDimension = getVectorDimension();
-
+  // Read once per call inside try to keep error handling consistent
+  let configuredVectorDimension: number;
   try {
+    configuredVectorDimension = getVectorDimension();
     // Validate model configuration early and get resolved model name and provider
     const { modelName: finalModelName, provider } =
       validateModelConfiguration();
@@ -236,7 +248,7 @@ function transformResults(
       similarity: result.similarity,
       metadata: {
         sourceURL: result.metadata.url || "",
-        scrapedAt: result.metadata.created_at || new Date().toISOString(),
+        scrapedAt: result.metadata.created_at || "",
         domain: result.metadata.domain,
         repositoryName: result.metadata.repository_name,
         repositoryOrg: result.metadata.repository_org,
@@ -315,25 +327,30 @@ export async function vectorSearch(
     });
     let vectorResults: VectorSearchResult[] = [];
 
-    for (const candidateThreshold of thresholdCandidates) {
-      thresholdHistory.push(candidateThreshold);
-      searchOptions.minSimilarity = candidateThreshold;
-
-      const attemptStart = Date.now();
-      const attemptResults = await searchSimilarVectors(
-        queryEmbedding,
-        searchOptions,
-        logger,
-      );
-      vectorSearchTime += Date.now() - attemptStart;
-
-      vectorResults = attemptResults;
-      usedThreshold = candidateThreshold;
-
-      if (attemptResults.length > 0) {
+    // Record all candidates considered
+    thresholdHistory.push(...thresholdCandidates);
+    // Single-pass at the lowest candidate
+    const minCandidate = Math.min(...thresholdCandidates);
+    searchOptions.minSimilarity = minCandidate;
+    const attemptStart = Date.now();
+    const allResults = await searchSimilarVectors(
+      queryEmbedding,
+      searchOptions,
+      logger,
+    );
+    vectorSearchTime += Date.now() - attemptStart;
+    // Pick the highest threshold that still yields results
+    const sortedDesc = [...thresholdCandidates].sort((a, b) => b - a);
+    usedThreshold = minCandidate;
+    for (const t of sortedDesc) {
+      const filtered = allResults.filter(r => r.similarity >= t);
+      if (filtered.length > 0) {
+        usedThreshold = t;
+        vectorResults = filtered;
         break;
       }
     }
+    // If no results at any threshold, keep empty vectorResults and usedThreshold=minCandidate
 
     // Step 4: Apply offset by slicing results
     const offsetResults =

@@ -9,6 +9,28 @@ const useFireEngine =
   process.env.FIRE_ENGINE_BETA_URL !== "" &&
   process.env.FIRE_ENGINE_BETA_URL !== undefined;
 
+// Cache configuration
+const CACHE_TTL = 3600000; // 1 hour in milliseconds
+
+interface CachedRobotsTxt {
+  content: string;
+  url: string;
+  timestamp: number;
+}
+
+// In-memory cache for robots.txt content
+const robotsCache = new Map<string, CachedRobotsTxt>();
+
+// Cleanup expired entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [domain, cached] of robotsCache.entries()) {
+    if (now - cached.timestamp > CACHE_TTL) {
+      robotsCache.delete(domain);
+    }
+  }
+}, CACHE_TTL); // Run cleanup every hour
+
 interface RobotsTxtChecker {
   robotsTxtUrl: string;
   robotsTxt: string;
@@ -30,7 +52,21 @@ export async function fetchRobotsTxt(
   abort?: AbortSignal,
 ): Promise<{ content: string; url: string }> {
   const urlObj = new URL(url);
-  const robotsTxtUrl = `${urlObj.protocol}//${urlObj.host}/robots.txt`;
+  const domain = `${urlObj.protocol}//${urlObj.host}`;
+  const robotsTxtUrl = `${domain}/robots.txt`;
+
+  // Check cache first
+  const cached = robotsCache.get(domain);
+  if (cached) {
+    const now = Date.now();
+    if (now - cached.timestamp <= CACHE_TTL) {
+      logger.debug(`Using cached robots.txt for ${domain}`);
+      return { content: cached.content, url: cached.url };
+    } else {
+      // Remove expired entry
+      robotsCache.delete(domain);
+    }
+  }
 
   const shouldPrioritizeFireEngine = location && useFireEngine;
 
@@ -83,6 +119,18 @@ export async function fetchRobotsTxt(
     response.document.metadata.statusCode < 300
   ) {
     content = response.document.rawHtml!;
+    const finalUrl = response.document.metadata.url || robotsTxtUrl;
+
+    // Cache successful fetch
+    robotsCache.set(domain, {
+      content,
+      url: finalUrl,
+      timestamp: Date.now(),
+    });
+
+    logger.debug(`Cached robots.txt for ${domain}`);
+
+    return { content, url: finalUrl };
   } else {
     logger.error(`Request failed for robots.txt fetch`, {
       method: "fetchRobotsTxt",
@@ -93,12 +141,6 @@ export async function fetchRobotsTxt(
     });
     return { content: "", url: robotsTxtUrl };
   }
-
-  // return URL in case we've been redirected
-  return {
-    content: content,
-    url: response.document.metadata.url || robotsTxtUrl,
-  };
 }
 
 export function createRobotsChecker(
@@ -157,4 +199,21 @@ export function isUrlAllowedByRobots(
   }
 
   return false;
+}
+
+/**
+ * Clears the robots.txt cache. Useful for testing or cache invalidation.
+ */
+export function clearRobotsCache(): void {
+  robotsCache.clear();
+}
+
+/**
+ * Gets cache statistics for monitoring purposes.
+ */
+export function getRobotsCacheStats(): { size: number; domains: string[] } {
+  return {
+    size: robotsCache.size,
+    domains: Array.from(robotsCache.keys()),
+  };
 }

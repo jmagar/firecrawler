@@ -74,17 +74,28 @@ export async function crawlController(
       const languageExcludePatterns =
         getLanguageExcludePatterns(defaultLanguage);
       if (languageExcludePatterns.length > 0) {
-        // Merge with existing excludePaths, don't replace
-        const existingExcludePaths = crawlerOptions.excludePaths || [];
-        crawlerOptions.excludePaths = [
-          ...existingExcludePaths,
-          ...languageExcludePatterns,
-        ];
+        // Merge (dedupe) with existing excludePaths; don't replace
+        const existingExcludePaths = Array.isArray(crawlerOptions.excludePaths)
+          ? crawlerOptions.excludePaths
+          : [];
+        const merged = Array.from(
+          new Set<string>([
+            ...existingExcludePaths,
+            ...languageExcludePatterns,
+          ]),
+        );
+        crawlerOptions.excludePaths = merged;
+        if (
+          !crawlerOptions.regexOnFullURL &&
+          languageExcludePatterns.some(p => p.includes("://"))
+        ) {
+          crawlerOptions.regexOnFullURL = true;
+        }
 
         logger.info("Applied automatic language filtering", {
           allowedLanguage: defaultLanguage,
           patternsAdded: languageExcludePatterns.length,
-          totalExcludePatterns: crawlerOptions.excludePaths.length,
+          totalExcludePatterns: merged.length,
         });
       }
     } catch (error) {

@@ -14,7 +14,10 @@ import { hasFormatOfType } from "../../lib/format-utils";
 import { TransportableError } from "../../lib/error";
 import { scrapeQueue } from "../../services/worker/nuq";
 import { checkPermissions } from "../../lib/permissions";
-import { shouldExcludeUrl } from "../../lib/language-filter.js";
+import {
+  shouldExcludeUrl,
+  isLanguageSupported,
+} from "../../lib/language-filter.js";
 import { normalizeLanguage } from "../../lib/strings";
 
 export async function scrapeController(
@@ -148,24 +151,30 @@ export async function scrapeController(
   }
 
   // Check for language mismatch warning
-  const defaultLanguage = process.env.DEFAULT_CRAWL_LANGUAGE;
+  const normalizedDefaultLanguage = normalizeLanguage(
+    process.env.DEFAULT_CRAWL_LANGUAGE,
+  );
   let languageMismatchWarning: string | undefined;
 
-  if (defaultLanguage && normalizeLanguage(defaultLanguage) !== "all") {
+  if (
+    normalizedDefaultLanguage &&
+    normalizedDefaultLanguage !== "all" &&
+    isLanguageSupported(normalizedDefaultLanguage)
+  ) {
     try {
-      if (shouldExcludeUrl(req.body.url, defaultLanguage)) {
-        languageMismatchWarning = `URL may contain content in a language other than '${defaultLanguage}'. Consider reviewing the content language or adjusting the DEFAULT_CRAWL_LANGUAGE setting.`;
+      if (shouldExcludeUrl(req.body.url, normalizedDefaultLanguage)) {
+        languageMismatchWarning = `URL may contain content in a language other than '${normalizedDefaultLanguage}'. Consider reviewing the content language or adjusting the DEFAULT_CRAWL_LANGUAGE setting.`;
 
         logger.info("Language mismatch warning for scrape request", {
           url: req.body.url,
-          allowedLanguage: defaultLanguage,
+          allowedLanguage: normalizedDefaultLanguage,
           warning: languageMismatchWarning,
         });
       }
     } catch (error) {
       logger.warn("Failed to check language mismatch for scrape request", {
         url: req.body.url,
-        defaultLanguage,
+        defaultLanguage: normalizedDefaultLanguage,
         error: error instanceof Error ? error.message : String(error),
       });
     }

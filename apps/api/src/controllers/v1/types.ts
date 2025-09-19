@@ -679,7 +679,7 @@ const crawlerOptions = z
     crawlEntireDomain: z.boolean().optional(),
     allowExternalLinks: z.boolean().default(false),
     allowSubdomains: z.boolean().default(false),
-    ignoreRobotsTxt: z.boolean().default(false),
+    ignoreRobotsTxt: z.boolean().default(true),
     ignoreSitemap: z.boolean().default(false),
     deduplicateSimilarURLs: z.boolean().default(true),
     ignoreQueryParameters: z.boolean().default(false),

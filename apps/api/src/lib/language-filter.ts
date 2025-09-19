@@ -123,6 +123,7 @@ function getLanguageExcludeRegexes(allowedLanguage: string): RegExp[] {
   for (const pattern of patterns) {
     try {
       // Use case-insensitive and unicode flags for better pattern matching
+      // Safe: 'pattern' originates from static templates with escaped tokens.
       const regex = new RegExp(pattern, "iu");
       regexes.push(regex);
     } catch (error) {
@@ -154,37 +155,41 @@ export function getLanguageExcludePatterns(allowedLanguage: string): string[] {
   // Extract base language code from region-tagged language (e.g., 'en-US' → 'en')
   const allowedBase = normalizedAllowed.split(/[-_]/)[0].toLowerCase().trim();
 
-  // Get all language codes except the allowed one
+  // Collect all excluded language tokens first
   const excludedLanguages = new Set<string>();
 
   for (const [langCode, patterns] of Object.entries(LANGUAGE_PATTERNS)) {
     if (langCode !== allowedBase) {
       // Add all patterns for this language to the exclusion set
-      patterns.forEach(pattern => excludedLanguages.add(pattern));
+      patterns.forEach(pattern => {
+        // Skip if this excluded language is actually a variant of our allowed language
+        // (e.g., if allowed is 'en', don't exclude 'en-us')
+        if (
+          pattern.startsWith(allowedBase + "-") ||
+          pattern.startsWith(allowedBase + "_")
+        ) {
+          return;
+        }
+        excludedLanguages.add(pattern);
+      });
     }
   }
 
-  // Build regex patterns for each excluded language
+  // Build a single alternation pattern of all excluded tokens
+  const excludedTokens = Array.from(excludedLanguages);
+  if (excludedTokens.length === 0) {
+    return [];
+  }
+
+  // Escape all tokens and create alternation
+  const escapedTokens = excludedTokens.map(escapeRegex);
+  const tokenAlternation = `(?:${escapedTokens.join("|")})`;
+
+  // Apply the alternation to each indicator once
   const excludePatterns = new Set<string>();
-
-  for (const excludedLang of Array.from(excludedLanguages)) {
-    // Skip if this excluded language is actually a variant of our allowed language
-    // (e.g., if allowed is 'en', don't exclude 'en-us')
-    if (
-      excludedLang.startsWith(allowedBase + "-") ||
-      excludedLang.startsWith(allowedBase + "_")
-    ) {
-      continue;
-    }
-
-    // Generate patterns for each URL indicator type
-    for (const indicator of URL_LANGUAGE_INDICATORS) {
-      const pattern = indicator.replace(
-        /\{\{lang\}\}/g,
-        escapeRegex(excludedLang),
-      );
-      excludePatterns.add(pattern);
-    }
+  for (const indicator of URL_LANGUAGE_INDICATORS) {
+    const pattern = indicator.replace(/\{\{lang\}\}/g, tokenAlternation);
+    excludePatterns.add(pattern);
   }
 
   return Array.from(excludePatterns);
@@ -268,7 +273,8 @@ export function getSupportedLanguages(): string[] {
  */
 export function clearLanguagePatternCache(langBase?: string): void {
   if (!langBase) {
-    return PATTERN_CACHE.clear();
+    PATTERN_CACHE.clear();
+    return;
   }
   PATTERN_CACHE.delete(langBase.toLowerCase().split(/[-_]/)[0].trim());
 }
