@@ -72,11 +72,11 @@ def register_map_tools(mcp: FastMCP) -> None:
     ) -> MapData:
         """
         Discover and map URLs from a website with comprehensive discovery options.
-        
+
         This tool performs comprehensive URL discovery from a website including
         sitemap parsing, crawling, subdomain exploration, and intelligent filtering
         to provide a complete map of available URLs.
-        
+
         Args:
             url: Website URL to map and discover URLs from (must be http:// or https://)
             search: Search filter to limit discovered URLs to specific patterns (max 500 chars)
@@ -87,10 +87,10 @@ def register_map_tools(mcp: FastMCP) -> None:
             integration: Integration identifier for custom processing (max 100 chars)
             location: Geographic location configuration for mapping
             ctx: MCP context for logging and progress reporting
-            
+
         Returns:
             MapData: Comprehensive list of discovered URLs with metadata
-            
+
         Raises:
             ToolError: If mapping fails or configuration is invalid
         """
@@ -120,14 +120,12 @@ def register_map_tools(mcp: FastMCP) -> None:
                 raise ToolError(f"Invalid sitemap value '{sitemap}'. Must be one of: {', '.join(valid_sitemap_values)}")
 
             # Validate timeout
-            if timeout is not None:
-                if timeout < 1 or timeout > 300:
-                    raise ToolError("Timeout must be between 1 and 300 seconds")
+            if timeout is not None and (timeout < 1 or timeout > 300):
+                raise ToolError("Timeout must be between 1 and 300 seconds")
 
             # Validate limit
-            if limit is not None:
-                if limit < 1 or limit > 10000:
-                    raise ToolError("Limit must be between 1 and 10,000 URLs")
+            if limit is not None and (limit < 1 or limit > 10000):
+                raise ToolError("Limit must be between 1 and 10,000 URLs")
 
             # Validate integration
             if integration and len(integration) > 100:
@@ -135,7 +133,7 @@ def register_map_tools(mcp: FastMCP) -> None:
 
             # Report initial progress
             await ctx.report_progress(10, 100)
-            await ctx.info(f"Validated URL, starting mapping with sitemap strategy: {sitemap or 'include'}")
+            await ctx.info(f"Validated URL, starting mapping with sitemap strategy: {sitemap}")
 
             # Report progress
             await ctx.report_progress(30, 100)
@@ -147,7 +145,7 @@ def register_map_tools(mcp: FastMCP) -> None:
                 search=search,
                 include_subdomains=include_subdomains,
                 limit=limit,
-                sitemap=sitemap or "include",
+                sitemap=sitemap,
                 timeout=timeout,
                 integration=integration,
                 location=location
@@ -164,7 +162,7 @@ def register_map_tools(mcp: FastMCP) -> None:
             logger.info(
                 f"Mapping completed for {url}: "
                 f"discovered={url_count} URLs, "
-                f"sitemap_strategy={sitemap or 'include'}, "
+                f"sitemap_strategy={sitemap}, "
                 f"search_filter={search is not None}, "
                 f"include_subdomains={include_subdomains}, "
                 f"limit={limit}"
@@ -186,14 +184,13 @@ def register_map_tools(mcp: FastMCP) -> None:
         except FirecrawlError as e:
             error_msg = f"Firecrawl API error during URL mapping: {e}"
             await ctx.error(error_msg)
-            raise handle_firecrawl_error(e, "map")
+            raise handle_firecrawl_error(e, "map") from e
 
         except Exception as e:
             error_msg = f"Unexpected error during URL mapping: {e}"
             await ctx.error(error_msg)
             raise ToolError(error_msg) from e
 
-    return ["map"]
 
 
 # Tool exports for registration

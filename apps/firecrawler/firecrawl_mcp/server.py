@@ -6,11 +6,20 @@ This module provides the main FastMCP server instance following the standard Fas
 
 import logging
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
+
+from firecrawl_mcp.core.client import get_client_status
+from firecrawl_mcp.tools.crawl import register_crawl_tools
+from firecrawl_mcp.tools.extract import register_extract_tools
+from firecrawl_mcp.tools.firerag import register_firerag_tools
+from firecrawl_mcp.tools.firesearch import register_firesearch_tools
+from firecrawl_mcp.tools.map import register_map_tools
+from firecrawl_mcp.tools.scrape import register_scrape_tools
 
 # Load environment variables from root .env file (single source of truth)
 try:
@@ -19,7 +28,7 @@ try:
     root_env = find_dotenv(usecwd=False)  # Search upward from current location
     if not root_env:
         # If not found via find_dotenv, try explicit path
-        root_env = Path(__file__).parent.parent.parent.parent / ".env"
+        root_env = str(Path(__file__).parent.parent.parent.parent / ".env")
 
     if Path(root_env).exists():
         load_dotenv(root_env)
@@ -48,8 +57,8 @@ logger = logging.getLogger(__name__)
 mcp = FastMCP(
     name="Firecrawl MCP Server",
     instructions="""
-This server provides comprehensive web scraping, crawling, extraction, and vector search 
-capabilities through the Firecrawl API. All tools support advanced configuration options 
+This server provides comprehensive web scraping, crawling, extraction, and vector search
+capabilities through the Firecrawl API. All tools support advanced configuration options
 and provide detailed progress reporting for long-running operations.
 
 AVAILABLE CAPABILITIES:
@@ -84,10 +93,6 @@ BEST PRACTICES:
 async def health_check(ctx: Context) -> dict[str, Any]:
     """Check server health and Firecrawl API connectivity."""
     try:
-        from datetime import UTC, datetime
-
-        from firecrawl_mcp.core.client import get_client_status
-
         client_status = get_client_status()
 
         health_info = {
@@ -109,45 +114,39 @@ async def health_check(ctx: Context) -> dict[str, Any]:
 
 
 # Register tools from modules
-def _register_all_tools():
+def _register_all_tools() -> None:
     """Register all tools on server startup."""
     try:
-        from firecrawl_mcp.tools.scrape import register_scrape_tools
         register_scrape_tools(mcp)
         logger.info("Registered scraping tools")
     except ImportError as e:
         logger.warning(f"Could not register scraping tools: {e}")
 
     try:
-        from firecrawl_mcp.tools.crawl import register_crawl_tools
         register_crawl_tools(mcp)
         logger.info("Registered crawling tools")
     except ImportError as e:
         logger.warning(f"Could not register crawling tools: {e}")
 
     try:
-        from firecrawl_mcp.tools.extract import register_extract_tools
         register_extract_tools(mcp)
         logger.info("Registered extraction tools")
     except ImportError as e:
         logger.warning(f"Could not register extraction tools: {e}")
 
     try:
-        from firecrawl_mcp.tools.map import register_map_tools
         register_map_tools(mcp)
         logger.info("Registered mapping tools")
     except ImportError as e:
         logger.warning(f"Could not register mapping tools: {e}")
 
     try:
-        from firecrawl_mcp.tools.firesearch import register_firesearch_tools
         register_firesearch_tools(mcp)
         logger.info("Registered search tools")
     except ImportError as e:
         logger.warning(f"Could not register search tools: {e}")
 
     try:
-        from firecrawl_mcp.tools.firerag import register_firerag_tools
         register_firerag_tools(mcp)
         logger.info("Registered vector search tools")
     except ImportError as e:

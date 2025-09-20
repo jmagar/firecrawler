@@ -8,7 +8,7 @@ the Firecrawler MCP server following FastMCP in-memory testing patterns.
 import asyncio
 import os
 import tempfile
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
@@ -49,7 +49,7 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
 
 
 @pytest.fixture(autouse=True)
-def clean_environment():
+def clean_environment() -> Generator[None, None, None]:
     """Simple environment cleanup following FastMCP self-contained patterns."""
     # Reset the global client before each test
     reset_client()
@@ -68,7 +68,7 @@ def test_env() -> Generator[dict[str, str], None, None]:
 
 
 @pytest.fixture
-def mock_firecrawl_client():
+def mock_firecrawl_client() -> Mock:
     """Create a mock Firecrawl client for testing."""
     mock_client = Mock()
 
@@ -100,7 +100,7 @@ def mock_firecrawl_client():
 
 
 @pytest.fixture
-async def async_mock_firecrawl_client():
+async def async_mock_firecrawl_client() -> AsyncMock:
     """Create an async mock Firecrawl client for testing."""
     mock_client = AsyncMock()
 
@@ -132,7 +132,7 @@ async def async_mock_firecrawl_client():
 
 
 @pytest.fixture
-def valid_config(test_env) -> MCPConfig:
+def valid_config(test_env: dict[str, str]) -> MCPConfig:  # noqa: ARG001
     """Create a valid MCP configuration for testing."""
     return MCPConfig()
 
@@ -143,6 +143,7 @@ def invalid_config() -> MCPConfig:
     # Create config without required API key
     with patch.dict(os.environ, {}, clear=True):
         config = MCPConfig.__new__(MCPConfig)
+        # Set attributes directly on the config instance
         config.firecrawl_api_key = None
         config.firecrawl_api_url = "https://api.firecrawl.dev"
         config.firecrawl_timeout = 30.0
@@ -203,14 +204,14 @@ def basic_test_server() -> FastMCP:
 
 
 @pytest.fixture
-def mock_successful_client_validation(mock_firecrawl_client):
+def mock_successful_client_validation(mock_firecrawl_client: Mock) -> Generator[Mock, None, None]:
     """Mock successful client validation."""
     with patch("firecrawl_mcp.core.client.FirecrawlClient", return_value=mock_firecrawl_client):
         yield mock_firecrawl_client
 
 
 @pytest.fixture
-def mock_failed_client_validation():
+def mock_failed_client_validation() -> Generator[Mock, None, None]:
     """Mock failed client validation."""
     mock_client = Mock()
     mock_client.get_credit_usage.side_effect = Exception("Connection failed")
@@ -313,22 +314,24 @@ def sample_vector_search_response() -> dict[str, Any]:
 
 
 # Utility functions for testing
-def assert_mcp_error(error: Exception, expected_type: type, expected_code: str | None = None):
+def assert_mcp_error(error: Exception, expected_type: type[Exception], expected_code: str | None = None) -> None:
     """Assert that an error is of the expected MCP error type with optional code check."""
     assert isinstance(error, expected_type), f"Expected {expected_type.__name__}, got {type(error).__name__}"
 
     if expected_code and isinstance(error, MCPError):
-        assert error.error_code == expected_code, f"Expected error code {expected_code}, got {error.error_code}"
+        # MCPError doesn't have error_code attribute, use getattr with default
+        error_code = getattr(error, 'error_code', None)
+        assert error_code == expected_code, f"Expected error code {expected_code}, got {error_code}"
 
 
-def create_test_config(**overrides) -> dict[str, str]:
+def create_test_config(**overrides: str) -> dict[str, str]:
     """Create a test configuration with optional overrides."""
     config = TEST_CONFIG.copy()
     config.update(overrides)
     return config
 
 
-async def wait_for_condition(condition_func, timeout: float = 5.0, interval: float = 0.1) -> bool:
+async def wait_for_condition(condition_func: Callable[[], bool] | Callable[[], Any], timeout: float = 5.0, interval: float = 0.1) -> bool:
     """Wait for a condition to become true within a timeout."""
     elapsed = 0.0
     while elapsed < timeout:

@@ -14,7 +14,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from fastmcp.server.middleware import Middleware, MiddlewareContext
+import mcp.types as mt
+from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
+from fastmcp.tools.tool import ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +75,8 @@ class PerformanceStats:
             return 0.0
         sorted_durations = sorted(self.recent_durations)
         index = int(len(sorted_durations) * 0.95)
-        return sorted_durations[min(index, len(sorted_durations) - 1)]
+        result = sorted_durations[min(index, len(sorted_durations) - 1)]
+        return float(result)
 
     def add_measurement(self, duration_ms: float, success: bool) -> None:
         """Add a new measurement to the statistics."""
@@ -107,7 +110,7 @@ class PerformanceStats:
 class TimingMiddleware(Middleware):
     """
     Basic timing middleware that logs request durations.
-    
+
     Provides simple timing information for all MCP requests with
     configurable logging and basic statistics tracking.
     """
@@ -121,7 +124,7 @@ class TimingMiddleware(Middleware):
     ):
         """
         Initialize timing middleware.
-        
+
         Args:
             logger_name: Custom logger name, defaults to module logger
             log_slow_requests: Whether to log requests that exceed threshold
@@ -142,20 +145,24 @@ class TimingMiddleware(Middleware):
         # Recent metrics for debugging (limited size)
         self._recent_metrics: deque = deque(maxlen=1000)
 
-    async def on_request(self, context: MiddlewareContext, call_next):
+    async def on_request(
+        self,
+        context: MiddlewareContext[mt.Request],
+        call_next: CallNext[mt.Request, Any]
+    ) -> Any:
         """
         FastMCP hook for timing all requests.
-        
+
         Args:
             context: FastMCP middleware context
             call_next: Function to continue middleware chain
-            
+
         Returns:
             The result of the request
         """
         start_time = time.perf_counter()
         error_info = None
-        operation = context.method
+        operation = context.method or "unknown"
 
         try:
             result = await call_next(context)
@@ -178,7 +185,7 @@ class TimingMiddleware(Middleware):
             # Create performance metric
             metric = PerformanceMetric(
                 operation=operation,
-                method=context.method,
+                method=context.method or "unknown",
                 start_time=start_time,
                 end_time=end_time,
                 duration_ms=duration_ms,
@@ -264,7 +271,7 @@ class TimingMiddleware(Middleware):
 class DetailedTimingMiddleware(TimingMiddleware):
     """
     Detailed timing middleware with operation-specific tracking.
-    
+
     Extends basic timing with granular timing for specific operation types
     and detailed statistics tracking.
     """
@@ -281,7 +288,7 @@ class DetailedTimingMiddleware(TimingMiddleware):
     ):
         """
         Initialize detailed timing middleware.
-        
+
         Args:
             logger_name: Custom logger name
             log_slow_requests: Whether to log slow requests
@@ -308,7 +315,11 @@ class DetailedTimingMiddleware(TimingMiddleware):
             lambda: PerformanceStats("")
         )
 
-    async def on_call_tool(self, context: MiddlewareContext, call_next):
+    async def on_call_tool(
+        self,
+        context: MiddlewareContext[mt.CallToolRequestParams],
+        call_next: CallNext[mt.CallToolRequestParams, ToolResult]
+    ) -> ToolResult:
         """FastMCP hook for timing tool calls."""
         if not self.track_tool_performance:
             return await call_next(context)
@@ -341,13 +352,17 @@ class DetailedTimingMiddleware(TimingMiddleware):
                         stats.operation = f"tool:{tool_name}"
                     stats.add_measurement(duration_ms, success)
 
-    async def on_read_resource(self, context: MiddlewareContext, call_next):
+    async def on_read_resource(
+        self,
+        context: MiddlewareContext[mt.ReadResourceRequestParams],
+        call_next: CallNext[mt.ReadResourceRequestParams, mt.ReadResourceResult]
+    ) -> mt.ReadResourceResult:
         """FastMCP hook for timing resource reads."""
         if not self.track_resource_performance:
             return await call_next(context)
 
         start_time = time.perf_counter()
-        resource_uri = context.message.uri if hasattr(context.message, 'uri') else 'unknown'
+        resource_uri = str(context.message.uri) if hasattr(context.message, 'uri') else 'unknown'
 
         try:
             result = await call_next(context)
@@ -374,7 +389,11 @@ class DetailedTimingMiddleware(TimingMiddleware):
                         stats.operation = f"resource:{resource_uri}"
                     stats.add_measurement(duration_ms, success)
 
-    async def on_get_prompt(self, context: MiddlewareContext, call_next):
+    async def on_get_prompt(
+        self,
+        context: MiddlewareContext[mt.GetPromptRequestParams],
+        call_next: CallNext[mt.GetPromptRequestParams, mt.GetPromptResult]
+    ) -> mt.GetPromptResult:
         """FastMCP hook for timing prompt requests."""
         if not self.track_prompt_performance:
             return await call_next(context)
@@ -435,7 +454,31 @@ class DetailedTimingMiddleware(TimingMiddleware):
             self._prompt_stats.clear()
 
 
-# Factory function removed - use direct instantiation with FastMCP
-# Example:
-# mcp.add_middleware(TimingMiddleware(log_slow_requests=True, enable_stats=True))
-# mcp.add_middleware(DetailedTimingMiddleware(track_tool_performance=True))
+def create_timing_middleware(config: Any) -> TimingMiddleware:
+    """
+    Create a timing middleware instance based on configuration.
+
+    Args:
+        config: Configuration object with debug_mode and enable_metrics attributes
+
+    Returns:
+        TimingMiddleware instance (basic or detailed based on config)
+    """
+    # Use environment variables directly since MCPConfig is deprecated
+    debug_mode = getattr(config, 'debug_mode', False)
+    enable_metrics = getattr(config, 'enable_metrics', True)
+
+    if debug_mode:
+        return DetailedTimingMiddleware(
+            enable_stats=enable_metrics,
+            track_tool_performance=True,
+            track_resource_performance=True,
+            track_prompt_performance=True
+        )
+    else:
+        return TimingMiddleware(
+            enable_stats=enable_metrics,
+            log_slow_requests=enable_metrics
+        )
+
+

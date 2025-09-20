@@ -51,6 +51,12 @@ interface VectorMetadata {
   created_at?: string;
   token_count?: number;
   description?: string;
+
+  // Phase 1: Content quality metrics for improved ranking
+  quality_score?: number;
+  content_density?: number;
+  navigation_ratio?: number;
+  structural_quality?: number;
 }
 
 export interface VectorSearchOptions {

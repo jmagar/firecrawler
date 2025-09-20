@@ -8,13 +8,14 @@ with Firecrawl API patterns using FastMCP in-memory testing patterns.
 
 import asyncio
 import time
-from typing import Any
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
+from fastmcp.exceptions import ToolError
+from fastmcp.server.middleware import MiddlewareContext
 
 from firecrawl_mcp.core.config import MCPConfig
-from firecrawl_mcp.core.exceptions import MCPRateLimitError
 from firecrawl_mcp.middleware.rate_limit import (
     ClientIdentifier,
     RateLimitConfig,
@@ -22,7 +23,6 @@ from firecrawl_mcp.middleware.rate_limit import (
     SlidingWindow,
     SlidingWindowRateLimitingMiddleware,
     TokenBucket,
-    create_rate_limiting_middleware,
 )
 
 
@@ -35,8 +35,8 @@ class MockMiddlewareContext:
         source: str = "test_client",
         message: Any = None,
         fastmcp_context: Any = None,
-        **kwargs
-    ):
+        **kwargs: Any
+    ) -> None:
         self.method = method
         self.source = source
         self.message = message
@@ -46,10 +46,16 @@ class MockMiddlewareContext:
             setattr(self, key, value)
 
 
+def create_mock_context(**kwargs: Any) -> MiddlewareContext[Any]:
+    """Create a mock context that satisfies type checker."""
+    mock_ctx = MockMiddlewareContext(**kwargs)
+    return cast("MiddlewareContext[Any]", mock_ctx)
+
+
 class TestRateLimitConfig:
     """Test RateLimitConfig functionality."""
 
-    def test_default_config(self):
+    def test_default_config(self) -> None:
         """Test default rate limit configuration."""
         config = RateLimitConfig()
 
@@ -65,9 +71,10 @@ class TestRateLimitConfig:
         assert config.global_per_hour == 5000
         assert config.burst_multiplier == 1.5
 
-    def test_from_config(self):
+    def test_from_config(self) -> None:
         """Test creating rate limit config from MCP config."""
         mcp_config = MCPConfig()
+        # Set rate limit attributes directly on the MCPConfig instance
         mcp_config.rate_limit_requests_per_minute = 100
         mcp_config.rate_limit_requests_per_hour = 1000
 
@@ -80,7 +87,7 @@ class TestRateLimitConfig:
 class TestTokenBucket:
     """Test TokenBucket algorithm."""
 
-    def test_token_bucket_initialization(self):
+    def test_token_bucket_initialization(self) -> None:
         """Test token bucket initialization."""
         bucket = TokenBucket(
             capacity=10.0,
@@ -92,7 +99,7 @@ class TestTokenBucket:
         assert bucket.tokens == 10.0
         assert bucket.refill_rate == 1.0
 
-    def test_consume_tokens_success(self):
+    def test_consume_tokens_success(self) -> None:
         """Test successful token consumption."""
         bucket = TokenBucket(capacity=10.0, tokens=10.0, refill_rate=1.0)
 
@@ -103,7 +110,7 @@ class TestTokenBucket:
         assert bucket.consume(3) is True
         assert bucket.tokens == 2.0
 
-    def test_consume_tokens_failure(self):
+    def test_consume_tokens_failure(self) -> None:
         """Test token consumption failure when insufficient tokens."""
         bucket = TokenBucket(capacity=10.0, tokens=3.0, refill_rate=1.0)
 
@@ -111,7 +118,7 @@ class TestTokenBucket:
         assert bucket.consume(5) is False
         assert bucket.tokens == 3.0  # Should remain unchanged
 
-    def test_token_refill(self):
+    def test_token_refill(self) -> None:
         """Test token refill over time."""
         bucket = TokenBucket(capacity=10.0, tokens=5.0, refill_rate=2.0)  # 2 tokens per second
 
@@ -126,7 +133,7 @@ class TestTokenBucket:
         # Should have refilled 2 tokens (2.0 rate * 1 second) - 1 consumed = 6 tokens
         assert bucket.tokens == 6.0
 
-    def test_token_refill_capacity_limit(self):
+    def test_token_refill_capacity_limit(self) -> None:
         """Test that token refill respects capacity limit."""
         bucket = TokenBucket(capacity=10.0, tokens=8.0, refill_rate=5.0)
 
@@ -137,7 +144,7 @@ class TestTokenBucket:
         bucket.consume(0)  # Trigger refill
         assert bucket.tokens == 10.0  # Capped at capacity
 
-    def test_time_until_tokens(self):
+    def test_time_until_tokens(self) -> None:
         """Test calculating time until tokens are available."""
         bucket = TokenBucket(capacity=10.0, tokens=2.0, refill_rate=1.0)
 
@@ -153,7 +160,7 @@ class TestTokenBucket:
 class TestSlidingWindow:
     """Test SlidingWindow algorithm."""
 
-    def test_sliding_window_initialization(self):
+    def test_sliding_window_initialization(self) -> None:
         """Test sliding window initialization."""
         window = SlidingWindow(capacity=5, window_seconds=60)
 
@@ -161,7 +168,7 @@ class TestSlidingWindow:
         assert window.window_seconds == 60
         assert len(window.timestamps) == 0
 
-    def test_add_request_success(self):
+    def test_add_request_success(self) -> None:
         """Test adding requests within capacity."""
         window = SlidingWindow(capacity=3, window_seconds=60)
 
@@ -170,7 +177,7 @@ class TestSlidingWindow:
         assert window.add_request() is True
         assert len(window.timestamps) == 3
 
-    def test_add_request_failure(self):
+    def test_add_request_failure(self) -> None:
         """Test adding requests beyond capacity."""
         window = SlidingWindow(capacity=2, window_seconds=60)
 
@@ -179,7 +186,7 @@ class TestSlidingWindow:
         assert window.add_request() is False  # Should fail
         assert len(window.timestamps) == 2
 
-    def test_window_expiration(self):
+    def test_window_expiration(self) -> None:
         """Test that old timestamps are removed."""
         window = SlidingWindow(capacity=3, window_seconds=1)  # 1 second window
 
@@ -195,7 +202,7 @@ class TestSlidingWindow:
         assert window.add_request() is True
         assert len(window.timestamps) == 2  # One expired, one new
 
-    def test_time_until_available(self):
+    def test_time_until_available(self) -> None:
         """Test calculating time until slot becomes available."""
         window = SlidingWindow(capacity=2, window_seconds=10)
 
@@ -212,40 +219,40 @@ class TestSlidingWindow:
 class TestClientIdentifier:
     """Test ClientIdentifier functionality."""
 
-    def test_default_client_id(self):
+    def test_default_client_id(self) -> None:
         """Test default client ID extraction."""
-        context = MockMiddlewareContext(source="test_source")
+        context = create_mock_context(source="test_source")
 
         client_id = ClientIdentifier.get_client_id(context)
         assert client_id == "source_test_source"
 
-    def test_fastmcp_context_client_id(self):
+    def test_fastmcp_context_client_id(self) -> None:
         """Test client ID extraction from FastMCP context."""
         mock_fastmcp_context = Mock()
         mock_fastmcp_context.get_state = Mock(return_value="custom_client_123")
 
-        context = MockMiddlewareContext(fastmcp_context=mock_fastmcp_context)
+        context = create_mock_context(fastmcp_context=mock_fastmcp_context)
 
         client_id = ClientIdentifier.get_client_id(context)
         assert client_id == "custom_client_123"
 
-    def test_transport_info_client_id(self):
+    def test_transport_info_client_id(self) -> None:
         """Test client ID extraction from transport info."""
         mock_fastmcp_context = Mock()
         mock_fastmcp_context.get_state = Mock(return_value=None)
         mock_fastmcp_context.transport_info = {"remote_addr": "192.168.1.100"}
 
-        context = MockMiddlewareContext(fastmcp_context=mock_fastmcp_context)
+        context = create_mock_context(fastmcp_context=mock_fastmcp_context)
 
         client_id = ClientIdentifier.get_client_id(context)
         assert client_id == "ip_192.168.1.100"
 
-    def test_operation_type_extraction(self):
+    def test_operation_type_extraction(self) -> None:
         """Test operation type extraction from method."""
         # Test tool methods
         mock_message = Mock()
         mock_message.name = "scrape_url"
-        context = MockMiddlewareContext(method="tools/call", message=mock_message)
+        context = create_mock_context(method="tools/call", message=mock_message)
 
         op_type = ClientIdentifier.get_operation_type(context)
         assert op_type == "scrape"
@@ -265,9 +272,9 @@ class TestClientIdentifier:
         op_type = ClientIdentifier.get_operation_type(context)
         assert op_type == "vector_search"
 
-    def test_general_operation_fallback(self):
+    def test_general_operation_fallback(self) -> None:
         """Test fallback to general operation type."""
-        context = MockMiddlewareContext(method="unknown_method")
+        context = create_mock_context(method="unknown_method")
 
         op_type = ClientIdentifier.get_operation_type(context)
         assert op_type == "general"
@@ -277,7 +284,7 @@ class TestRateLimitingMiddleware:
     """Test RateLimitingMiddleware functionality."""
 
     @pytest.fixture
-    def rate_config(self):
+    def rate_config(self) -> RateLimitConfig:
         """Create a test rate limit configuration."""
         return RateLimitConfig(
             scrape_per_minute=10,
@@ -288,7 +295,7 @@ class TestRateLimitingMiddleware:
         )
 
     @pytest.fixture
-    def rate_limiting_middleware(self, rate_config):
+    def rate_limiting_middleware(self, rate_config: RateLimitConfig) -> RateLimitingMiddleware:
         """Create a rate limiting middleware instance."""
         return RateLimitingMiddleware(
             config=rate_config,
@@ -296,33 +303,33 @@ class TestRateLimitingMiddleware:
             global_rate_limit=True
         )
 
-    async def test_successful_request_within_limits(self, rate_limiting_middleware):
+    async def test_successful_request_within_limits(self, rate_limiting_middleware: RateLimitingMiddleware) -> None:
         """Test successful request processing within rate limits."""
         mock_message = Mock()
         mock_message.name = "scrape_url"
-        context = MockMiddlewareContext(
+        context = create_mock_context(
             method="tools/call",
             message=mock_message,
             source="test_client"
         )
 
-        async def mock_next(ctx):
+        async def mock_next(_ctx: Any) -> dict[str, str]:
             return {"result": "success"}
 
         result = await rate_limiting_middleware.on_request(context, mock_next)
         assert result == {"result": "success"}
 
-    async def test_rate_limit_exceeded_per_minute(self, rate_limiting_middleware):
+    async def test_rate_limit_exceeded_per_minute(self, rate_limiting_middleware: RateLimitingMiddleware) -> None:
         """Test rate limit exceeded for per-minute limits."""
         mock_message = Mock()
         mock_message.name = "scrape_url"
-        context = MockMiddlewareContext(
+        context = create_mock_context(
             method="tools/call",
             message=mock_message,
             source="test_client"
         )
 
-        async def mock_next(ctx):
+        async def mock_next(_ctx: Any) -> dict[str, str]:
             return {"result": "success"}
 
         # Make requests up to the limit
@@ -330,27 +337,26 @@ class TestRateLimitingMiddleware:
             await rate_limiting_middleware.on_request(context, mock_next)
 
         # Next request should fail
-        with pytest.raises(MCPRateLimitError) as exc_info:
+        with pytest.raises(ToolError) as exc_info:
             await rate_limiting_middleware.on_request(context, mock_next)
 
         error = exc_info.value
         assert "Rate limit exceeded for scrape operations (per minute)" in str(error)
-        assert error.rate_limit_type == "scrape_minute"
 
-    async def test_global_rate_limit_exceeded(self, rate_limiting_middleware):
+    async def test_global_rate_limit_exceeded(self, rate_limiting_middleware: RateLimitingMiddleware) -> None:
         """Test global rate limit exceeded."""
         # Create different operations to hit global limit
         contexts = []
         for i in range(5):  # Create different tools
             mock_message = Mock()
             mock_message.name = f"tool_{i}"
-            contexts.append(MockMiddlewareContext(
+            contexts.append(create_mock_context(
                 method="tools/call",
                 message=mock_message,
                 source=f"client_{i}"
             ))
 
-        async def mock_next(ctx):
+        async def mock_next(_ctx: Any) -> dict[str, str]:
             return {"result": "success"}
 
         # Exhaust global per-minute limit (50)
@@ -360,29 +366,29 @@ class TestRateLimitingMiddleware:
                 break  # Just use first context repeatedly
 
         # Next request should fail with global rate limit
-        with pytest.raises(MCPRateLimitError) as exc_info:
+        with pytest.raises(ToolError) as exc_info:
             await rate_limiting_middleware.on_request(contexts[0], mock_next)
 
         error = exc_info.value
         assert "Global rate limit exceeded" in str(error)
 
-    async def test_different_clients_separate_limits(self, rate_limiting_middleware):
+    async def test_different_clients_separate_limits(self, rate_limiting_middleware: RateLimitingMiddleware) -> None:
         """Test that different clients have separate rate limits."""
         mock_message = Mock()
         mock_message.name = "scrape_url"
 
-        client1_context = MockMiddlewareContext(
+        client1_context = create_mock_context(
             method="tools/call",
             message=mock_message,
             source="client_1"
         )
-        client2_context = MockMiddlewareContext(
+        client2_context = create_mock_context(
             method="tools/call",
             message=mock_message,
             source="client_2"
         )
 
-        async def mock_next(ctx):
+        async def mock_next(_ctx: Any) -> dict[str, str]:
             return {"result": "success"}
 
         # Exhaust limit for client 1
@@ -390,32 +396,32 @@ class TestRateLimitingMiddleware:
             await rate_limiting_middleware.on_request(client1_context, mock_next)
 
         # Client 1 should be rate limited
-        with pytest.raises(MCPRateLimitError):
+        with pytest.raises(ToolError):
             await rate_limiting_middleware.on_request(client1_context, mock_next)
 
         # Client 2 should still work
         result = await rate_limiting_middleware.on_request(client2_context, mock_next)
         assert result == {"result": "success"}
 
-    async def test_different_operations_separate_limits(self, rate_limiting_middleware):
+    async def test_different_operations_separate_limits(self, rate_limiting_middleware: RateLimitingMiddleware) -> None:
         """Test that different operations have separate rate limits."""
         scrape_message = Mock()
         scrape_message.name = "scrape_url"
         search_message = Mock()
         search_message.name = "firesearch"
 
-        scrape_context = MockMiddlewareContext(
+        scrape_context = create_mock_context(
             method="tools/call",
             message=scrape_message,
             source="test_client"
         )
-        search_context = MockMiddlewareContext(
+        search_context = create_mock_context(
             method="tools/call",
             message=search_message,
             source="test_client"
         )
 
-        async def mock_next(ctx):
+        async def mock_next(_ctx: Any) -> dict[str, str]:
             return {"result": "success"}
 
         # Exhaust scrape limit
@@ -423,14 +429,14 @@ class TestRateLimitingMiddleware:
             await rate_limiting_middleware.on_request(scrape_context, mock_next)
 
         # Scrape should be rate limited
-        with pytest.raises(MCPRateLimitError):
+        with pytest.raises(ToolError):
             await rate_limiting_middleware.on_request(scrape_context, mock_next)
 
         # Search should still work (different operation type)
         result = await rate_limiting_middleware.on_request(search_context, mock_next)
         assert result == {"result": "success"}
 
-    def test_get_rate_limit_status(self, rate_limiting_middleware):
+    def test_get_rate_limit_status(self, rate_limiting_middleware: RateLimitingMiddleware) -> None:
         """Test getting rate limit status."""
         status = rate_limiting_middleware.get_rate_limit_status()
 
@@ -444,19 +450,19 @@ class TestRateLimitingMiddleware:
         assert global_minute["remaining"] == 50
         assert "reset_time" in global_minute
 
-    def test_get_client_rate_limit_status(self, rate_limiting_middleware):
+    def test_get_client_rate_limit_status(self, rate_limiting_middleware: RateLimitingMiddleware) -> None:
         """Test getting rate limit status for specific client."""
         # First make a request to create client buckets
-        async def setup_client():
+        async def setup_client() -> None:
             mock_message = Mock()
             mock_message.name = "scrape_url"
-            context = MockMiddlewareContext(
+            context = create_mock_context(
                 method="tools/call",
                 message=mock_message,
                 source="test_client"
             )
 
-            async def mock_next(ctx):
+            async def mock_next(_ctx: Any) -> str:
                 return "success"
 
             await rate_limiting_middleware.on_request(context, mock_next)
@@ -471,19 +477,19 @@ class TestRateLimitingMiddleware:
         assert "minute" in client_status["scrape"]
         assert "hour" in client_status["scrape"]
 
-    def test_reset_client_limits(self, rate_limiting_middleware):
+    def test_reset_client_limits(self, rate_limiting_middleware: RateLimitingMiddleware) -> None:
         """Test resetting rate limits for a specific client."""
         # Setup client buckets first
-        async def setup_and_reset():
+        async def setup_and_reset() -> None:
             mock_message = Mock()
             mock_message.name = "scrape_url"
-            context = MockMiddlewareContext(
+            context = create_mock_context(
                 method="tools/call",
                 message=mock_message,
                 source="test_client"
             )
 
-            async def mock_next(ctx):
+            async def mock_next(_ctx: Any) -> str:
                 return "success"
 
             # Use some rate limit
@@ -504,7 +510,7 @@ class TestSlidingWindowRateLimitingMiddleware:
     """Test SlidingWindowRateLimitingMiddleware functionality."""
 
     @pytest.fixture
-    def sliding_middleware(self):
+    def sliding_middleware(self) -> SlidingWindowRateLimitingMiddleware:
         """Create a sliding window rate limiting middleware."""
         return SlidingWindowRateLimitingMiddleware(
             max_requests=5,
@@ -514,17 +520,17 @@ class TestSlidingWindowRateLimitingMiddleware:
             }
         )
 
-    async def test_sliding_window_within_limits(self, sliding_middleware):
+    async def test_sliding_window_within_limits(self, sliding_middleware: SlidingWindowRateLimitingMiddleware) -> None:
         """Test requests within sliding window limits."""
         mock_message = Mock()
         mock_message.name = "general_tool"
-        context = MockMiddlewareContext(
+        context = create_mock_context(
             method="tools/call",
             message=mock_message,
             source="test_client"
         )
 
-        async def mock_next(ctx):
+        async def mock_next(_ctx: Any) -> dict[str, str]:
             return {"result": "success"}
 
         # Should be able to make requests up to limit
@@ -532,17 +538,17 @@ class TestSlidingWindowRateLimitingMiddleware:
             result = await sliding_middleware.on_request(context, mock_next)
             assert result == {"result": "success"}
 
-    async def test_sliding_window_exceeded(self, sliding_middleware):
+    async def test_sliding_window_exceeded(self, sliding_middleware: SlidingWindowRateLimitingMiddleware) -> None:
         """Test sliding window rate limit exceeded."""
         mock_message = Mock()
         mock_message.name = "general_tool"
-        context = MockMiddlewareContext(
+        context = create_mock_context(
             method="tools/call",
             message=mock_message,
             source="test_client"
         )
 
-        async def mock_next(ctx):
+        async def mock_next(_ctx: Any) -> dict[str, str]:
             return {"result": "success"}
 
         # Exhaust the limit
@@ -550,24 +556,23 @@ class TestSlidingWindowRateLimitingMiddleware:
             await sliding_middleware.on_request(context, mock_next)
 
         # Next request should fail
-        with pytest.raises(MCPRateLimitError) as exc_info:
+        with pytest.raises(ToolError) as exc_info:
             await sliding_middleware.on_request(context, mock_next)
 
         error = exc_info.value
         assert "Rate limit exceeded for general operations" in str(error)
-        assert error.rate_limit_type == "general_sliding"
 
-    async def test_operation_specific_limits(self, sliding_middleware):
+    async def test_operation_specific_limits(self, sliding_middleware: SlidingWindowRateLimitingMiddleware) -> None:
         """Test operation-specific sliding window limits."""
         mock_message = Mock()
         mock_message.name = "scrape_url"
-        context = MockMiddlewareContext(
+        context = create_mock_context(
             method="tools/call",
             message=mock_message,
             source="test_client"
         )
 
-        async def mock_next(ctx):
+        async def mock_next(_ctx: Any) -> dict[str, str]:
             return {"result": "success"}
 
         # Should be able to make 3 scrape requests (operation-specific limit)
@@ -576,42 +581,16 @@ class TestSlidingWindowRateLimitingMiddleware:
             assert result == {"result": "success"}
 
         # 4th request should fail
-        with pytest.raises(MCPRateLimitError):
+        with pytest.raises(ToolError):
             await sliding_middleware.on_request(context, mock_next)
 
 
-class TestRateLimitingFactory:
-    """Test rate limiting middleware factory functions."""
-
-    def test_create_rate_limiting_enabled(self):
-        """Test creating rate limiting middleware when enabled."""
-        config = MCPConfig()
-        config.rate_limit_enabled = True
-        config.rate_limit_requests_per_minute = 100
-        config.rate_limit_requests_per_hour = 1000
-
-        middleware = create_rate_limiting_middleware(config)
-
-        assert isinstance(middleware, RateLimitingMiddleware)
-        assert middleware.config.global_per_minute == 100
-        assert middleware.config.global_per_hour == 1000
-        assert middleware.enable_burst is True
-        assert middleware.global_rate_limit is True
-
-    def test_create_rate_limiting_disabled(self):
-        """Test that no middleware is created when rate limiting is disabled."""
-        config = MCPConfig()
-        config.rate_limit_enabled = False
-
-        middleware = create_rate_limiting_middleware(config)
-
-        assert middleware is None
 
 
 class TestRateLimitingIntegration:
     """Test rate limiting integration scenarios."""
 
-    async def test_rate_limiting_with_token_refill(self):
+    async def test_rate_limiting_with_token_refill(self) -> None:
         """Test rate limiting with token bucket refill over time."""
         config = RateLimitConfig(
             scrape_per_minute=60,  # 1 token per second
@@ -627,13 +606,13 @@ class TestRateLimitingIntegration:
 
         mock_message = Mock()
         mock_message.name = "scrape_url"
-        context = MockMiddlewareContext(
+        context = create_mock_context(
             method="tools/call",
             message=mock_message,
             source="test_client"
         )
 
-        async def mock_next(ctx):
+        async def mock_next(_ctx: Any) -> dict[str, str]:
             await asyncio.sleep(0.1)  # Small delay
             return {"result": "success"}
 
@@ -642,7 +621,7 @@ class TestRateLimitingIntegration:
             await middleware.on_request(context, mock_next)
 
         # Should be rate limited now
-        with pytest.raises(MCPRateLimitError):
+        with pytest.raises(ToolError):
             await middleware.on_request(context, mock_next)
 
         # Wait for token refill (1 second = 1 token)
@@ -652,7 +631,7 @@ class TestRateLimitingIntegration:
         result = await middleware.on_request(context, mock_next)
         assert result == {"result": "success"}
 
-    async def test_concurrent_rate_limiting(self):
+    async def test_concurrent_rate_limiting(self) -> None:
         """Test rate limiting with concurrent requests."""
         config = RateLimitConfig(
             scrape_per_minute=10,
@@ -669,25 +648,26 @@ class TestRateLimitingIntegration:
         mock_message = Mock()
         mock_message.name = "scrape_url"
 
-        async def make_request(client_id: str):
-            context = MockMiddlewareContext(
+        async def make_request(client_id: str) -> str:
+            context = create_mock_context(
                 method="tools/call",
                 message=mock_message,
                 source=client_id
             )
 
-            async def mock_next(ctx):
+            async def mock_next(_ctx: Any) -> str:
                 return f"result_{client_id}"
 
             try:
-                return await middleware.on_request(context, mock_next)
-            except MCPRateLimitError:
+                result = await middleware.on_request(context, mock_next)
+                return str(result)
+            except ToolError:
                 return "rate_limited"
 
         # Launch concurrent requests from different clients
         tasks = []
         for i in range(5):  # 5 clients
-            for j in range(8):  # 8 requests each
+            for _j in range(8):  # 8 requests each
                 tasks.append(make_request(f"client_{i}"))
 
         results = await asyncio.gather(*tasks)
@@ -700,34 +680,33 @@ class TestRateLimitingIntegration:
         assert len(rate_limited) > 0
         assert len(successful) + len(rate_limited) == 40
 
-    def test_rate_limit_error_details(self):
+    def test_rate_limit_error_details(self) -> None:
         """Test that rate limit errors contain proper details."""
         config = RateLimitConfig(scrape_per_minute=1)
         middleware = RateLimitingMiddleware(config=config, enable_burst=False)
 
         mock_message = Mock()
         mock_message.name = "scrape_url"
-        context = MockMiddlewareContext(
+        context = create_mock_context(
             method="tools/call",
             message=mock_message,
             source="test_client"
         )
 
-        async def test_error():
-            async def mock_next(ctx):
+        async def test_error() -> None:
+            async def mock_next(_ctx: Any) -> str:
                 return "success"
 
             # Use up the token
             await middleware.on_request(context, mock_next)
 
             # Next request should raise detailed error
-            with pytest.raises(MCPRateLimitError) as exc_info:
+            with pytest.raises(ToolError) as exc_info:
                 await middleware.on_request(context, mock_next)
 
             error = exc_info.value
-            assert error.rate_limit_type == "scrape_minute"
-            assert "reset_time" in error.details
-            assert "current_usage" in error.details
-            assert "limit" in error.details
+            # ToolError doesn't have rate_limit_type or details attributes
+            # Just check that it's a proper error message
+            assert "Rate limit exceeded for scrape operations" in str(error)
 
         asyncio.run(test_error())

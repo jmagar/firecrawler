@@ -5,6 +5,7 @@ This suite focuses on raw vector retrieval behaviour without LLM synthesis.
 """
 
 import json
+from collections.abc import AsyncGenerator
 from unittest.mock import Mock, patch
 
 import pytest
@@ -21,7 +22,7 @@ from firecrawl_mcp.tools.firerag import register_firerag_tools
 
 
 @pytest.fixture
-def firerag_server(test_env):
+def firerag_server() -> FastMCP:
     """Create FastMCP server with firerag tools registered."""
     server = FastMCP("TestFireRAGServer")
     register_firerag_tools(server)
@@ -29,14 +30,14 @@ def firerag_server(test_env):
 
 
 @pytest.fixture
-async def firerag_client(firerag_server):
+async def firerag_client(firerag_server: FastMCP) -> AsyncGenerator[Client, None]:
     """Create MCP client for firerag tools."""
     async with Client(firerag_server) as client:
         yield client
 
 
 @pytest.fixture
-def vector_search_result():
+def vector_search_result() -> list[VectorSearchResult]:
     """Provide a single vector search result."""
     return [
         VectorSearchResult(
@@ -55,7 +56,7 @@ def vector_search_result():
 
 
 @pytest.fixture
-def vector_search_data(vector_search_result):
+def vector_search_data(vector_search_result: list[VectorSearchResult]) -> VectorSearchData:
     """Build vector search data for successful responses."""
     return VectorSearchData(
         results=vector_search_result,
@@ -73,9 +74,9 @@ class TestFireRAGRawBehaviour:
 
     async def test_firerag_returns_serialized_results(
         self,
-        firerag_client,
-        vector_search_data,
-    ):
+        firerag_client: Client,
+        vector_search_data: VectorSearchData,
+    ) -> None:
         with patch("firecrawl_mcp.tools.firerag.get_firecrawl_client") as mock_get_client:
             mock_client = Mock()
             mock_client.vector_search.return_value = vector_search_data
@@ -91,9 +92,9 @@ class TestFireRAGRawBehaviour:
 
     async def test_firerag_forwards_filters(
         self,
-        firerag_client,
-        vector_search_data,
-    ):
+        firerag_client: Client,
+        vector_search_data: VectorSearchData,
+    ) -> None:
         with patch("firecrawl_mcp.tools.firerag.get_firecrawl_client") as mock_get_client:
             mock_client = Mock()
             mock_client.vector_search.return_value = vector_search_data
@@ -118,9 +119,9 @@ class TestFireRAGRawBehaviour:
 
     async def test_firerag_threshold_optional(
         self,
-        firerag_client,
-        vector_search_data,
-    ):
+        firerag_client: Client,
+        vector_search_data: VectorSearchData,
+    ) -> None:
         with patch("firecrawl_mcp.tools.firerag.get_firecrawl_client") as mock_get_client:
             mock_client = Mock()
             mock_client.vector_search.return_value = vector_search_data
@@ -132,9 +133,9 @@ class TestFireRAGRawBehaviour:
 
     async def test_firerag_auto_paginate_uses_helper(
         self,
-        firerag_client,
-        vector_search_result,
-    ):
+        firerag_client: Client,
+        vector_search_result: list[VectorSearchResult],
+    ) -> None:
         with (
             patch("firecrawl_mcp.tools.firerag.get_firecrawl_client") as mock_get_client,
             patch("firecrawl_mcp.tools.firerag.paginate_vector_search") as mock_paginate,
@@ -153,14 +154,15 @@ class TestFireRAGRawBehaviour:
             )
 
             mock_paginate.assert_called_once()
+            assert result.content[0].type == "text"
             payload = json.loads(result.content[0].text)
             assert payload["result_count"] == 1
             assert payload["pagination_metadata"]["pages_fetched"] == 1
 
     async def test_firerag_propagates_api_errors(
         self,
-        firerag_client,
-    ):
+        firerag_client: Client,
+    ) -> None:
         with patch("firecrawl_mcp.tools.firerag.get_firecrawl_client") as mock_get_client:
             mock_client = Mock()
             mock_client.vector_search.side_effect = FirecrawlError("bad request")

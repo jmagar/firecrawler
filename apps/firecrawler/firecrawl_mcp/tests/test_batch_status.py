@@ -6,14 +6,15 @@ including job monitoring, pagination, and status transitions.
 """
 
 import os
+from collections.abc import AsyncGenerator
 from unittest.mock import Mock, patch
 
 import pytest
 from fastmcp import Client, FastMCP
+from fastmcp.exceptions import ToolError
 from firecrawl.v2.types import BatchScrapeJob, Document
 from firecrawl.v2.utils.error_handler import (
     FirecrawlError,
-    NotFoundError,
     UnauthorizedError,
 )
 
@@ -24,20 +25,20 @@ class TestBatchStatusOperations:
     """Test suite for batch status monitoring operations."""
 
     @pytest.fixture
-    def status_server(self, test_env):
+    def status_server(self) -> FastMCP:
         """Create FastMCP server with batch status tools."""
         server = FastMCP("TestStatusServer")
         register_scrape_tools(server)
         return server
 
     @pytest.fixture
-    async def status_client(self, status_server):
+    async def status_client(self, status_server: FastMCP) -> AsyncGenerator[Client, None]:
         """Create MCP client for status operations."""
         async with Client(status_server) as client:
             yield client
 
     @pytest.fixture
-    def sample_documents(self):
+    def sample_documents(self) -> list[Document]:
         """Create sample documents for test responses."""
         return [
             Document(
@@ -96,7 +97,7 @@ class TestBatchStatusOperations:
 class TestBatchStatusBasicFunctionality(TestBatchStatusOperations):
     """Test basic batch status functionality."""
 
-    async def test_batch_status_completed_job(self, status_client, sample_documents):
+    async def test_batch_status_completed_job(self, status_client: Client, sample_documents: list[Document]) -> None:
         """Test status check for completed job."""
         completed_job = self.create_batch_job(
             job_id="completed-job-123",
@@ -129,7 +130,7 @@ class TestBatchStatusBasicFunctionality(TestBatchStatusOperations):
                 pagination_config=None
             )
 
-    async def test_batch_status_in_progress_job(self, status_client):
+    async def test_batch_status_in_progress_job(self, status_client: Client) -> None:
         """Test status check for in-progress job."""
         in_progress_job = self.create_batch_job(
             job_id="progress-job-456",
@@ -157,7 +158,7 @@ class TestBatchStatusBasicFunctionality(TestBatchStatusOperations):
             assert "scraping" in response_data
             assert "6/10" in response_data
 
-    async def test_batch_status_failed_job(self, status_client):
+    async def test_batch_status_failed_job(self, status_client: Client) -> None:
         """Test status check for failed job."""
         failed_job = self.create_batch_job(
             job_id="failed-job-789",
@@ -185,7 +186,7 @@ class TestBatchStatusBasicFunctionality(TestBatchStatusOperations):
             assert "failed" in response_data
             assert "2/5" in response_data
 
-    async def test_batch_status_cancelled_job(self, status_client):
+    async def test_batch_status_cancelled_job(self, status_client: Client) -> None:
         """Test status check for cancelled job."""
         cancelled_job = self.create_batch_job(
             job_id="cancelled-job-000",
@@ -217,7 +218,7 @@ class TestBatchStatusBasicFunctionality(TestBatchStatusOperations):
 class TestBatchStatusPagination(TestBatchStatusOperations):
     """Test pagination functionality in batch status."""
 
-    async def test_batch_status_default_pagination(self, status_client, sample_documents):
+    async def test_batch_status_default_pagination(self, status_client: Client, sample_documents: list[Document]) -> None:
         """Test batch status with default pagination (auto_paginate=True)."""
         job_with_data = self.create_batch_job(
             job_id="paginated-job-123",
@@ -247,7 +248,7 @@ class TestBatchStatusPagination(TestBatchStatusOperations):
                 pagination_config=None
             )
 
-    async def test_batch_status_disabled_pagination(self, status_client, sample_documents):
+    async def test_batch_status_disabled_pagination(self, status_client: Client, sample_documents: list[Document]) -> None:
         """Test batch status with disabled auto-pagination."""
         job_with_data = self.create_batch_job(
             job_id="no-pagination-job",
@@ -275,7 +276,7 @@ class TestBatchStatusPagination(TestBatchStatusOperations):
             assert pagination_config is not None
             assert pagination_config.auto_paginate is False
 
-    async def test_batch_status_max_pages_limit(self, status_client, sample_documents):
+    async def test_batch_status_max_pages_limit(self, status_client: Client, sample_documents: list[Document]) -> None:
         """Test batch status with max pages limit."""
         job_with_data = self.create_batch_job(data=sample_documents)
 
@@ -297,7 +298,7 @@ class TestBatchStatusPagination(TestBatchStatusOperations):
             pagination_config = call_args[1]["pagination_config"]
             assert pagination_config.max_pages == 5
 
-    async def test_batch_status_max_results_limit(self, status_client, sample_documents):
+    async def test_batch_status_max_results_limit(self, status_client: Client, sample_documents: list[Document]) -> None:
         """Test batch status with max results limit."""
         job_with_data = self.create_batch_job(data=sample_documents)
 
@@ -319,7 +320,7 @@ class TestBatchStatusPagination(TestBatchStatusOperations):
             pagination_config = call_args[1]["pagination_config"]
             assert pagination_config.max_results == 50
 
-    async def test_batch_status_combined_pagination_limits(self, status_client, sample_documents):
+    async def test_batch_status_combined_pagination_limits(self, status_client: Client, sample_documents: list[Document]) -> None:
         """Test batch status with combined pagination limits."""
         job_with_data = self.create_batch_job(data=sample_documents)
 
@@ -349,26 +350,26 @@ class TestBatchStatusPagination(TestBatchStatusOperations):
 class TestBatchStatusValidation(TestBatchStatusOperations):
     """Test parameter validation for batch status."""
 
-    async def test_batch_status_empty_job_id_error(self, status_client):
+    async def test_batch_status_empty_job_id_error(self, status_client: Client) -> None:
         """Test batch status with empty job ID."""
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(ToolError) as exc_info:
             await status_client.call_tool("batch_status", {"job_id": ""})
 
         assert "Job ID cannot be empty" in str(exc_info.value)
 
-    async def test_batch_status_whitespace_job_id_error(self, status_client):
+    async def test_batch_status_whitespace_job_id_error(self, status_client: Client) -> None:
         """Test batch status with whitespace-only job ID."""
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(ToolError) as exc_info:
             await status_client.call_tool("batch_status", {"job_id": "   "})
 
         assert "Job ID cannot be empty" in str(exc_info.value)
 
-    async def test_batch_status_pagination_parameter_validation(self, status_client):
+    async def test_batch_status_pagination_parameter_validation(self, status_client: Client) -> None:
         """Test pagination parameter validation."""
         # Test invalid max_pages values
         invalid_max_pages = [0, -1, -10]
         for invalid_value in invalid_max_pages:
-            with pytest.raises(Exception):
+            with pytest.raises(ToolError):
                 await status_client.call_tool("batch_status", {
                     "job_id": "test-job",
                     "max_pages": invalid_value
@@ -377,31 +378,31 @@ class TestBatchStatusValidation(TestBatchStatusOperations):
         # Test invalid max_results values
         invalid_max_results = [0, -1, -50]
         for invalid_value in invalid_max_results:
-            with pytest.raises(Exception):
+            with pytest.raises(ToolError):
                 await status_client.call_tool("batch_status", {
                     "job_id": "test-job",
                     "max_results": invalid_value
                 })
 
         # Test max values
-        with pytest.raises(Exception):
+        with pytest.raises(ToolError):
             await status_client.call_tool("batch_status", {
                 "job_id": "test-job",
                 "max_pages": 101  # Above limit
             })
 
-        with pytest.raises(Exception):
+        with pytest.raises(ToolError):
             await status_client.call_tool("batch_status", {
                 "job_id": "test-job",
                 "max_results": 10001  # Above limit
             })
 
-    async def test_batch_status_job_id_length_validation(self, status_client):
+    async def test_batch_status_job_id_length_validation(self, status_client: Client) -> None:
         """Test job ID length validation."""
         # Very long job ID (over 256 characters)
         long_job_id = "a" * 257
 
-        with pytest.raises(Exception):
+        with pytest.raises(ToolError):
             await status_client.call_tool("batch_status", {
                 "job_id": long_job_id
             })
@@ -410,18 +411,17 @@ class TestBatchStatusValidation(TestBatchStatusOperations):
 class TestBatchStatusProgressReporting(TestBatchStatusOperations):
     """Test progress reporting in batch status."""
 
-    async def test_batch_status_progress_calculation(self, status_client):
+    async def test_batch_status_progress_calculation(self, status_client: Client) -> None:
         """Test progress calculation for different job states."""
         test_scenarios = [
-            # (total, completed, expected_progress_range)
-            (10, 0, (20, 25)),    # Just started
-            (10, 3, (40, 50)),    # 30% complete
-            (10, 5, (60, 70)),    # 50% complete
-            (10, 8, (80, 90)),    # 80% complete
-            (10, 10, (100, 100)), # Completed
+            (10, 0),    # Just started
+            (10, 3),    # 30% complete
+            (10, 5),    # 50% complete
+            (10, 8),    # 80% complete
+            (10, 10),   # Completed
         ]
 
-        for total, completed, expected_range in test_scenarios:
+        for total, completed in test_scenarios:
             job = self.create_batch_job(
                 status="scraping",
                 total=total,
@@ -443,7 +443,7 @@ class TestBatchStatusProgressReporting(TestBatchStatusOperations):
                 response_data = result.content[0].text
                 assert f"{completed}/{total}" in response_data
 
-    async def test_batch_status_progress_edge_cases(self, status_client):
+    async def test_batch_status_progress_edge_cases(self, status_client: Client) -> None:
         """Test progress calculation edge cases."""
         # Division by zero case (total = 0)
         edge_case_job = BatchScrapeJob(
@@ -474,23 +474,23 @@ class TestBatchStatusProgressReporting(TestBatchStatusOperations):
 class TestBatchStatusErrorHandling(TestBatchStatusOperations):
     """Test error handling in batch status operations."""
 
-    async def test_batch_status_job_not_found(self, status_client):
+    async def test_batch_status_job_not_found(self, status_client: Client) -> None:
         """Test handling of job not found error."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
             mock_client = Mock()
-            mock_client.get_batch_scrape_status.side_effect = NotFoundError("Job not found")
+            mock_client.get_batch_scrape_status.side_effect = FirecrawlError("Job not found")
             mock_client_manager.client = mock_client
             mock_get_client.return_value = mock_client_manager
 
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(ToolError) as exc_info:
                 await status_client.call_tool("batch_status", {
                     "job_id": "nonexistent-job"
                 })
 
             assert "Firecrawl API error" in str(exc_info.value)
 
-    async def test_batch_status_unauthorized_error(self, status_client):
+    async def test_batch_status_unauthorized_error(self, status_client: Client) -> None:
         """Test handling of unauthorized error."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -499,26 +499,26 @@ class TestBatchStatusErrorHandling(TestBatchStatusOperations):
             mock_client_manager.client = mock_client
             mock_get_client.return_value = mock_client_manager
 
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(ToolError) as exc_info:
                 await status_client.call_tool("batch_status", {
                     "job_id": "test-job"
                 })
 
             assert "Firecrawl API error" in str(exc_info.value)
 
-    async def test_batch_status_client_initialization_error(self, status_client):
+    async def test_batch_status_client_initialization_error(self, status_client: Client) -> None:
         """Test error when client cannot be initialized."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_get_client.side_effect = Exception("Client not available")
 
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(ToolError) as exc_info:
                 await status_client.call_tool("batch_status", {
                     "job_id": "test-job"
                 })
 
             assert "Unexpected error" in str(exc_info.value)
 
-    async def test_batch_status_generic_api_error(self, status_client):
+    async def test_batch_status_generic_api_error(self, status_client: Client) -> None:
         """Test handling of generic API errors."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -527,7 +527,7 @@ class TestBatchStatusErrorHandling(TestBatchStatusOperations):
             mock_client_manager.client = mock_client
             mock_get_client.return_value = mock_client_manager
 
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(ToolError) as exc_info:
                 await status_client.call_tool("batch_status", {
                     "job_id": "test-job"
                 })
@@ -538,7 +538,7 @@ class TestBatchStatusErrorHandling(TestBatchStatusOperations):
 class TestBatchStatusDataHandling(TestBatchStatusOperations):
     """Test data handling in batch status responses."""
 
-    async def test_batch_status_with_large_dataset(self, status_client):
+    async def test_batch_status_with_large_dataset(self, status_client: Client) -> None:
         """Test batch status with large amount of result data."""
         # Create a large dataset
         large_documents = []
@@ -579,7 +579,7 @@ class TestBatchStatusDataHandling(TestBatchStatusOperations):
             assert "large-data-job" in response_data
             # Should handle large datasets without errors
 
-    async def test_batch_status_empty_data_set(self, status_client):
+    async def test_batch_status_empty_data_set(self, status_client: Client) -> None:
         """Test batch status with empty data set."""
         empty_job = self.create_batch_job(
             job_id="empty-job",
@@ -606,7 +606,7 @@ class TestBatchStatusDataHandling(TestBatchStatusOperations):
             assert "empty-job" in response_data
             assert "completed" in response_data
 
-    async def test_batch_status_partial_data_set(self, status_client, sample_documents):
+    async def test_batch_status_partial_data_set(self, status_client: Client, sample_documents: list[Document]) -> None:
         """Test batch status where data count doesn't match completed count."""
         # Job says 10 completed but only has 3 documents
         partial_job = self.create_batch_job(
@@ -640,14 +640,14 @@ class TestBatchStatusIntegration(TestBatchStatusOperations):
     """Integration tests for batch status with real API."""
 
     @pytest.mark.skipif(not os.getenv("FIRECRAWL_API_KEY"), reason="FIRECRAWL_API_KEY not available")
-    async def test_real_batch_status_check(self, status_client):
+    async def test_real_batch_status_check(self, status_client: Client) -> None:
         """Test real batch status checking."""
         # Note: This test requires a valid job ID from a previous batch scrape
         # In a real scenario, we would first create a batch job, then check its status
 
         # For this test, we'll check if the error handling works correctly
         # when checking a non-existent job
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(ToolError) as exc_info:
             await status_client.call_tool("batch_status", {
                 "job_id": "nonexistent-job-12345"
             })
@@ -656,7 +656,7 @@ class TestBatchStatusIntegration(TestBatchStatusOperations):
         assert "Firecrawl API error" in str(exc_info.value) or "not found" in str(exc_info.value).lower()
 
     @pytest.mark.skipif(not os.getenv("FIRECRAWL_API_KEY"), reason="FIRECRAWL_API_KEY not available")
-    async def test_real_batch_status_with_pagination(self, status_client):
+    async def test_real_batch_status_with_pagination(self, status_client: Client) -> None:
         """Test real batch status with pagination options."""
         # This test demonstrates how pagination would work with a real job
         # In practice, this would use a valid job ID

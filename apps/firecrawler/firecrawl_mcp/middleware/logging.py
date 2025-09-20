@@ -11,6 +11,7 @@ import logging
 import logging.handlers
 import time
 import traceback
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,7 @@ class RotatingFileHandler:
     ):
         """
         Initialize rotating file handler.
-        
+
         Args:
             filename: Path to log file
             max_bytes: Maximum file size before rotation
@@ -88,7 +89,7 @@ class RotatingFileHandler:
 class LoggingMiddleware(Middleware):
     """
     Human-readable logging middleware with optional payload logging.
-    
+
     Provides comprehensive request/response logging with configurable detail levels,
     payload logging, and automatic file rotation.
     """
@@ -106,7 +107,7 @@ class LoggingMiddleware(Middleware):
     ):
         """
         Initialize logging middleware.
-        
+
         Args:
             logger_name: Custom logger name
             include_payloads: Whether to include request/response payloads
@@ -138,7 +139,7 @@ class LoggingMiddleware(Middleware):
             'firecrawl_api_key', 'openai_api_key', 'auth_token'
         }
 
-    async def on_message(self, context: MiddlewareContext, call_next):
+    async def on_message(self, context: MiddlewareContext, call_next: Any) -> Any:
         """Log all MCP messages."""
         start_time = time.time()
         request_id = self._generate_request_id(context)
@@ -239,10 +240,9 @@ class LoggingMiddleware(Middleware):
         log_message = " ".join(message_parts)
 
         # Add stack trace for server errors
-        if isinstance(error, MCPError) and hasattr(error, 'details'):
-            if error.details:
-                details = self._mask_sensitive_dict(error.details) if self.mask_sensitive_data else error.details
-                log_message += f"\nError details: {json.dumps(details, indent=2)}"
+        if isinstance(error, MCPError) and hasattr(error, 'details') and error.details:
+            details = self._mask_sensitive_dict(error.details) if self.mask_sensitive_data else error.details
+            log_message += f"\nError details: {json.dumps(details, indent=2)}"
 
         # Add traceback for debugging
         log_message += f"\nTraceback:\n{traceback.format_exc()}"
@@ -280,12 +280,12 @@ class LoggingMiddleware(Middleware):
         except Exception as e:
             return f"[Error formatting payload: {e}]"
 
-    def _mask_sensitive_dict(self, data: dict[str, Any]) -> dict[str, Any]:
+    def _mask_sensitive_dict(self, data: dict[str, Any] | Any) -> dict[str, Any]:
         """Mask sensitive data in dictionary."""
         if not isinstance(data, dict):
-            return data
+            return {}
 
-        masked = {}
+        masked: dict[str, Any] = {}
         for key, value in data.items():
             key_lower = key.lower()
 
@@ -341,7 +341,7 @@ class LoggingMiddleware(Middleware):
 class StructuredLoggingMiddleware(Middleware):
     """
     JSON-structured logging middleware for log aggregation tools.
-    
+
     Provides machine-readable JSON logs suitable for ingestion by log aggregation
     and monitoring systems like ELK stack, Splunk, or cloud logging services.
     """
@@ -359,7 +359,7 @@ class StructuredLoggingMiddleware(Middleware):
     ):
         """
         Initialize structured logging middleware.
-        
+
         Args:
             logger_name: Custom logger name
             include_payloads: Whether to include payloads in logs
@@ -391,7 +391,7 @@ class StructuredLoggingMiddleware(Middleware):
             'firecrawl_api_key', 'openai_api_key', 'auth_token'
         }
 
-    async def on_message(self, context: MiddlewareContext, call_next):
+    async def on_message(self, context: MiddlewareContext, call_next: Any) -> Any:
         """Log messages in structured JSON format."""
         start_time = time.time()
         request_id = self._generate_request_id()
@@ -452,9 +452,9 @@ class StructuredLoggingMiddleware(Middleware):
             }
 
             # Add error details for MCP errors
-            if isinstance(error, MCPError):
-                error_details = error.to_dict()
-                if self.mask_sensitive_data:
+            if isinstance(error, MCPError) and hasattr(error, 'details'):
+                error_details = getattr(error, 'details', {})
+                if self.mask_sensitive_data and isinstance(error_details, dict):
                     error_details = self._mask_sensitive_dict(error_details)
                 error_entry["error_details"] = error_details
 
@@ -463,7 +463,6 @@ class StructuredLoggingMiddleware(Middleware):
 
     def _generate_request_id(self) -> str:
         """Generate unique request ID."""
-        import uuid
         return str(uuid.uuid4())
 
     def _process_payload(self, payload: Any) -> dict[str, Any] | None:
@@ -473,8 +472,9 @@ class StructuredLoggingMiddleware(Middleware):
                 return None
 
             # Convert to dictionary
+            payload_dict: dict[str, Any]
             if hasattr(payload, '__dict__'):
-                payload_dict = payload.__dict__
+                payload_dict = dict(payload.__dict__)
             elif isinstance(payload, dict):
                 payload_dict = payload.copy()
             else:
@@ -501,12 +501,12 @@ class StructuredLoggingMiddleware(Middleware):
         except Exception as e:
             return {"error": f"Failed to process payload: {e}"}
 
-    def _mask_sensitive_dict(self, data: dict[str, Any]) -> dict[str, Any]:
+    def _mask_sensitive_dict(self, data: dict[str, Any] | Any) -> dict[str, Any]:
         """Mask sensitive data in dictionary."""
         if not isinstance(data, dict):
-            return data
+            return {}
 
-        masked = {}
+        masked: dict[str, Any] = {}
         for key, value in data.items():
             key_lower = key.lower()
 
@@ -552,8 +552,3 @@ class StructuredLoggingMiddleware(Middleware):
         if self.file_handler:
             self.file_handler.close()
 
-
-# Factory function removed - use direct instantiation with FastMCP
-# Example:
-# mcp.add_middleware(LoggingMiddleware(include_payloads=True, log_file="logs/mcp.log"))
-# mcp.add_middleware(StructuredLoggingMiddleware(mask_sensitive_data=True))

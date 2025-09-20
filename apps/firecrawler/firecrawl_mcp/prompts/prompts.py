@@ -11,12 +11,309 @@ import logging
 from typing import Any, Literal
 
 from fastmcp import FastMCP
-from pydantic import Field
+from fastmcp.exceptions import ToolError
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
 # Create FastMCP server instance for prompts
 mcp = FastMCP(name="FirecrawlPrompts")
+
+
+# Pydantic models for prompt arguments
+
+
+class ExtractionPromptArgs(BaseModel):
+    """Arguments for structured extraction prompts."""
+
+    content_type: str = Field(description="Type of content being extracted")
+    extraction_fields: list[str] = Field(description="List of fields to extract from the content")
+    schema_description: str | None = Field(default=None, description="Description of the expected data schema")
+    output_format: Literal["json", "structured_text", "key_value"] = Field(default="json", description="Desired output format for extracted data")
+    strict_schema: bool = Field(default=True, description="Whether to enforce strict schema compliance")
+    include_confidence: bool = Field(default=False, description="Whether to include confidence scores for extracted fields")
+
+    @field_validator('output_format')
+    @classmethod
+    def validate_output_format(cls, v: str) -> str:
+        if v not in ["json", "structured_text", "key_value"]:
+            raise ValueError(f"Invalid output format: {v}")
+        return v
+
+
+class SynthesisPromptArgs(BaseModel):
+    """Arguments for vector synthesis prompts."""
+
+    query: str = Field(description="Original user query that triggered the vector search")
+    result_count: int = Field(description="Number of vector search results to synthesize")
+    max_context_length: int = Field(default=2000, description="Maximum length of context to include from each result", ge=100, le=5000)
+    synthesis_style: Literal["comprehensive", "concise", "bullet_points", "executive_summary"] = Field(default="comprehensive", description="Style of synthesis to generate")
+    include_sources: bool = Field(default=True, description="Whether to include source citations in the synthesis")
+    handle_conflicts: bool = Field(default=True, description="Whether to address conflicting information between sources")
+
+    @field_validator('max_context_length')
+    @classmethod
+    def validate_context_length(cls, v: int) -> int:
+        if v < 100:
+            raise ValueError("Context length must be at least 100 characters")
+        if v > 5000:
+            raise ValueError("Context length cannot exceed 5000 characters")
+        return v
+
+
+class ContentAnalysisPromptArgs(BaseModel):
+    """Arguments for content analysis prompts."""
+
+    content_type: Literal["webpage", "documentation", "article", "code", "forum_post", "unknown"] = Field(description="Type of content being analyzed")
+    analysis_goals: list[str] = Field(description="List of analysis goals")
+    output_structure: Literal["summary", "detailed", "categorized"] = Field(default="summary", description="Structure of the analysis output")
+    domain_context: str | None = Field(default=None, description="Domain or industry context for the analysis")
+
+
+class RetryPromptArgs(BaseModel):
+    """Arguments for error recovery prompts."""
+
+    original_operation: str = Field(description="The operation that failed")
+    error_type: str = Field(description="Type of error encountered")
+    attempted_parameters: dict[str, Any] = Field(description="Parameters that were used in the failed attempt")
+    error_details: str | None = Field(default=None, description="Additional error details or context")
+    user_intent: str | None = Field(default=None, description="Description of what the user was trying to accomplish")
+
+
+# Validation functions
+
+
+def validate_extraction_args(args: ExtractionPromptArgs) -> None:
+    """Validate extraction prompt arguments."""
+    if not args.extraction_fields:
+        raise ToolError("Extraction fields cannot be empty")
+
+    if len(args.extraction_fields) > 50:
+        raise ToolError("Too many extraction fields (maximum 50 allowed)")
+
+
+def validate_synthesis_args(args: SynthesisPromptArgs) -> None:
+    """Validate synthesis prompt arguments."""
+    if not args.query or args.query.strip() == "":
+        raise ToolError("Query cannot be empty")
+
+    if args.result_count <= 0:
+        raise ToolError("Result count must be positive")
+
+    if args.result_count > 100:
+        raise ToolError("Too many results for synthesis (maximum 100 allowed)")
+
+
+# Registration function
+
+
+def register_prompt_templates(server: FastMCP) -> list[str]:
+    """Register all prompt templates with the FastMCP server."""
+    prompt_names = []
+
+    # We need to get the original function before the decorator wraps it
+    # The @mcp.prompt decorator returns a FunctionPrompt object, not the original function
+
+    # Define helper functions that call the original logic
+    def _structured_extraction_impl(
+        content_type: str,
+        extraction_fields: list[str],
+        schema_description: str | None = None,
+        output_format: Literal["json", "structured_text", "key_value"] = "json",
+        strict_schema: bool = True,
+        include_confidence: bool = False
+    ) -> str:
+        # Build field specifications
+        field_specs = []
+        for field in extraction_fields:
+            field_specs.append(f"- {field}: Extract this field accurately from the content")
+
+        fields_text = "\n".join(field_specs)
+
+        # Build output format instructions
+        format_instructions = {
+            "json": "Return the extracted data as valid JSON with the specified field names as keys.",
+            "structured_text": "Return the extracted data in a structured text format with clear field labels.",
+            "key_value": "Return the extracted data as key-value pairs, one per line."
+        }
+
+        format_instruction = format_instructions.get(output_format, format_instructions["json"])
+
+        # Build schema enforcement instructions
+        schema_enforcement = ""
+        if strict_schema and schema_description:
+            schema_enforcement = f"\n\nSTRICT SCHEMA COMPLIANCE REQUIRED:\n{schema_description}\nDo not deviate from the specified schema structure."
+
+        # Build confidence scoring instructions
+        confidence_instructions = ""
+        if include_confidence:
+            confidence_instructions = "\n\nFor each extracted field, include a confidence score (0.0-1.0) indicating how certain you are about the accuracy of the extraction."
+
+        return f"""You are an expert data extraction specialist. Extract structured information from the following {content_type} content.
+
+EXTRACTION REQUIREMENTS:
+{fields_text}
+
+OUTPUT FORMAT:
+{format_instruction}
+
+EXTRACTION GUIDELINES:
+1. Read the content carefully and thoroughly
+2. Extract only the information that directly corresponds to the requested fields
+3. If a field cannot be found or determined, mark it as null or "not available"
+4. Maintain accuracy over completeness - do not infer or guess missing information
+5. Preserve the original meaning and context of extracted information
+
+{schema_enforcement}
+{confidence_instructions}
+
+Please extract the requested information from the content provided below."""
+
+    # Register structured_extraction prompt
+    @server.prompt(
+        name="structured_extraction",
+        description="Generate prompts for AI-powered structured data extraction from web content with customizable schemas and output formats.",
+        tags={"extraction", "ai", "structured_data"}
+    )
+    def _structured_extraction(
+        content_type: str = Field(description="Type of content being extracted"),
+        extraction_fields: list[str] = Field(description="List of fields to extract from the content"),
+        schema_description: str | None = Field(default=None, description="Description of the expected data schema"),
+        output_format: Literal["json", "structured_text", "key_value"] = Field(default="json", description="Desired output format for extracted data"),
+        strict_schema: bool = Field(default=True, description="Whether to enforce strict schema compliance"),
+        include_confidence: bool = Field(default=False, description="Whether to include confidence scores for extracted fields")
+    ) -> str:
+        return _structured_extraction_impl(content_type, extraction_fields, schema_description, output_format, strict_schema, include_confidence)
+
+    prompt_names.append("structured_extraction")
+
+    # Similar pattern for other prompts - just register wrapper functions that call the prompt logic
+    @server.prompt(
+        name="vector_synthesis",
+        description="Generate prompts for synthesizing vector search results into coherent, comprehensive responses with source attribution.",
+        tags={"vector_search", "synthesis", "rag"}
+    )
+    def _vector_synthesis(
+        query: str = Field(description="Original user query that triggered the vector search"),
+        _result_count: int = Field(description="Number of vector search results to synthesize"),
+        _max_context_length: int = Field(default=2000, description="Maximum length of context to include from each result", ge=100, le=5000),
+        synthesis_style: Literal["comprehensive", "concise", "bullet_points", "executive_summary"] = Field(default="comprehensive", description="Style of synthesis to generate"),
+        include_sources: bool = Field(default=True, description="Whether to include source citations in the synthesis"),
+        handle_conflicts: bool = Field(default=True, description="Whether to address conflicting information between sources")
+    ) -> str:
+        # Simplified prompt logic for synthesis
+        style_instructions = {
+            "comprehensive": "Provide a thorough, detailed response that covers all relevant aspects found in the search results.",
+            "concise": "Provide a brief, focused response that captures the essential information from the search results.",
+            "bullet_points": "Organize the information from search results into clear bullet points or numbered lists.",
+            "executive_summary": "Provide a high-level executive summary suitable for decision-makers."
+        }
+        style_instruction = style_instructions.get(synthesis_style, style_instructions["comprehensive"])
+
+        source_instructions = ""
+        if include_sources:
+            source_instructions = """
+SOURCE CITATION REQUIREMENTS:
+- Include specific source references for key information
+- Use format: [Source: URL or title]
+- When multiple sources support the same point, list them: [Sources: URL1, URL2]
+- Clearly indicate when information comes from a single vs. multiple sources"""
+
+        conflict_instructions = ""
+        if handle_conflicts:
+            conflict_instructions = """
+CONFLICT RESOLUTION:
+- When sources provide conflicting information, acknowledge the discrepancy
+- Present different viewpoints clearly: "According to Source A... however, Source B indicates..."
+- If possible, explain potential reasons for conflicts (different time periods, contexts, etc.)
+- Do not choose sides unless there's clear evidence of which source is more authoritative"""
+
+        return f"""You are a research synthesis expert. Your task is to analyze the provided search results and create a comprehensive response to the user's query.
+
+ORIGINAL QUERY: {query}
+
+SYNTHESIS REQUIREMENTS:
+- {style_instruction}
+- Base your response solely on the information provided in the search results
+- Do not add external knowledge or make unsupported inferences
+- Maintain objectivity and accuracy throughout your response
+
+{source_instructions}
+{conflict_instructions}
+
+RESPONSE STRUCTURE:
+1. Begin with a direct answer to the query if possible
+2. Provide supporting details and evidence from the search results
+3. Address any limitations or gaps in the available information
+4. Conclude with a summary if appropriate for the chosen style
+
+The search results will be provided below. Please synthesize them into a coherent response that directly addresses the user's query."""
+
+    prompt_names.append("vector_synthesis")
+
+    # Register remaining prompts with simple implementations
+    @server.prompt(
+        name="content_analysis",
+        description="Generate prompts for analyzing and categorizing web content with domain-specific insights and structured outputs.",
+        tags={"analysis", "categorization", "content"}
+    )
+    def _content_analysis(
+        content_type: Literal["webpage", "documentation", "article", "code", "forum_post", "unknown"] = Field(description="Type of content being analyzed"),
+        analysis_goals: list[str] = Field(description="List of analysis goals"),
+        _output_structure: Literal["summary", "detailed", "categorized"] = Field(default="summary", description="Structure of the analysis output"),
+        _domain_context: str | None = Field(default=None, description="Domain or industry context for the analysis")
+    ) -> str:
+        return f"Analyze {content_type} content for: {', '.join(analysis_goals)}"
+
+    prompt_names.append("content_analysis")
+
+    @server.prompt(
+        name="error_recovery_suggestions",
+        description="Generate helpful suggestions for recovering from failed operations, with alternative approaches and parameter adjustments.",
+        tags={"error_handling", "recovery", "troubleshooting"}
+    )
+    def _error_recovery_suggestions(
+        original_operation: str = Field(description="The operation that failed"),
+        error_type: str = Field(description="Type of error encountered"),
+        _attempted_parameters: dict[str, Any] = Field(description="Parameters that were used in the failed attempt"),
+        _error_details: str | None = Field(default=None, description="Additional error details or context"),
+        _user_intent: str | None = Field(default=None, description="Description of what the user was trying to accomplish")
+    ) -> str:
+        return f"Recovery suggestions for {original_operation} operation that failed with {error_type}"
+
+    prompt_names.append("error_recovery_suggestions")
+
+    @server.prompt(
+        name="query_expansion",
+        description="Generate expanded and refined queries for better vector search results, with semantic variations and context enrichment.",
+        tags={"search", "query_expansion", "vector_search"}
+    )
+    def _query_expansion(
+        original_query: str,
+        _context: str | None = Field(default=None, description="Additional context about the user's intent or domain"),
+        expansion_type: Literal["semantic", "keyword", "comprehensive"] = Field(default="semantic", description="Type of query expansion to perform"),
+        max_variants: int = Field(default=5, description="Maximum number of query variants to generate", ge=1, le=10)
+    ) -> str:
+        return f"Expand query '{original_query}' using {expansion_type} approach with {max_variants} variants"
+
+    prompt_names.append("query_expansion")
+
+    @server.prompt(
+        name="content_classification",
+        description="Generate prompts for classifying and tagging web content with metadata extraction and categorization.",
+        tags={"classification", "tagging", "metadata"}
+    )
+    def _content_classification(
+        content_url: str,
+        classification_goals: list[str] = Field(description="List of classification goals"),
+        _available_categories: dict[str, list[str]] | None = Field(default=None, description="Available categories for each classification goal"),
+        _extract_metadata: bool = Field(default=True, description="Whether to extract additional metadata fields")
+    ) -> str:
+        return f"Classify content from {content_url} for goals: {', '.join(classification_goals)}"
+
+    prompt_names.append("content_classification")
+
+    return prompt_names
 
 
 
@@ -36,7 +333,7 @@ def structured_extraction(
 ) -> str:
     """
     Generate a comprehensive prompt for structured data extraction.
-    
+
     This prompt template creates detailed instructions for LLM-based extraction
     of structured data from web content, supporting various output formats
     and validation requirements.
@@ -94,15 +391,15 @@ Please extract the requested information from the content provided below."""
 )
 def vector_synthesis(
     query: str = Field(description="Original user query that triggered the vector search"),
-    result_count: int = Field(description="Number of vector search results to synthesize"),
-    max_context_length: int = Field(default=2000, description="Maximum length of context to include from each result", ge=100, le=5000),
+    result_count: int = Field(description="Number of vector search results to synthesize"),  # noqa: ARG001
+    max_context_length: int = Field(default=2000, description="Maximum length of context to include from each result", ge=100, le=5000),  # noqa: ARG001
     synthesis_style: Literal["comprehensive", "concise", "bullet_points", "executive_summary"] = Field(default="comprehensive", description="Style of synthesis to generate"),
     include_sources: bool = Field(default=True, description="Whether to include source citations in the synthesis"),
     handle_conflicts: bool = Field(default=True, description="Whether to address conflicting information between sources")
 ) -> str:
     """
     Generate a prompt for synthesizing vector search results into coherent responses.
-    
+
     This prompt template creates instructions for LLM-based synthesis of multiple
     vector search results, handling source attribution, conflict resolution,
     and different synthesis styles.
@@ -171,7 +468,7 @@ def content_analysis(
 ) -> str:
     """
     Generate a prompt for comprehensive content analysis and categorization.
-    
+
     This prompt template creates instructions for analyzing web content
     across multiple dimensions including sentiment, topics, entities,
     and domain-specific characteristics.
@@ -230,13 +527,13 @@ Please analyze the content provided below according to these specifications."""
 def error_recovery_suggestions(
     original_operation: str = Field(description="The operation that failed (e.g., 'scrape', 'extract', 'search')"),
     error_type: str = Field(description="Type of error encountered (e.g., 'rate_limit', 'timeout', 'invalid_url')"),
-    error_details: str | None = Field(default=None, description="Additional error details or context"),
     attempted_parameters: dict[str, Any] = Field(description="Parameters that were used in the failed attempt"),
+    error_details: str | None = Field(default=None, description="Additional error details or context"),
     user_intent: str | None = Field(default=None, description="Description of what the user was trying to accomplish")
 ) -> str:
     """
     Generate user-friendly suggestions for recovering from operation failures.
-    
+
     This prompt template creates helpful guidance for users when operations
     fail, suggesting alternative approaches, parameter adjustments, and
     troubleshooting steps.
@@ -305,7 +602,7 @@ def query_expansion(
 ) -> str:
     """
     Generate expanded query variants for improved vector search results.
-    
+
     This prompt template creates alternative formulations of user queries
     to improve vector search recall and find relevant content that might
     be missed by the original query alone.
@@ -372,7 +669,7 @@ def content_classification(
 ) -> str:
     """
     Generate a prompt for classifying and categorizing web content.
-    
+
     This prompt template creates instructions for systematic content
     classification, metadata extraction, and tagging that can be used
     to organize and filter scraped content effectively.
@@ -452,7 +749,7 @@ def content_summarization(
 ) -> str:
     """
     Generate a comprehensive summary of web content with customizable focus and length.
-    
+
     This prompt template creates instructions for summarizing web content
     while preserving key information and allowing for different summary
     styles and focus areas.
@@ -529,7 +826,7 @@ def entity_recognition(
 ) -> str:
     """
     Generate prompts for comprehensive entity recognition and extraction.
-    
+
     This prompt template creates instructions for identifying various types
     of entities in web content, with support for relationship mapping and
     confidence scoring.
@@ -601,7 +898,7 @@ def context_filtering(
 ) -> str:
     """
     Generate prompts for intelligent filtering and ranking of content chunks.
-    
+
     This prompt template creates instructions for evaluating search results
     and selecting the most relevant, high-quality chunks for context.
     """
@@ -669,15 +966,15 @@ Please evaluate and filter the search result chunks provided below according to 
 )
 def alternative_approaches(
     current_approach: str = Field(description="The current approach or tool that failed or is suboptimal"),
-    failure_reason: str | None = Field(default=None, description="Specific reason why the current approach failed"),
     user_goal: str = Field(description="What the user is ultimately trying to accomplish"),
+    failure_reason: str | None = Field(default=None, description="Specific reason why the current approach failed"),
     constraints: list[str] | None = Field(default=None, description="Any constraints or limitations to consider"),
     available_tools: list[str] | None = Field(default=None, description="List of alternative tools or methods available"),
     priority_factors: list[str] = Field(default=["effectiveness", "ease_of_use", "speed"], description="Factors to prioritize in alternatives")
 ) -> str:
     """
     Generate suggestions for alternative approaches and problem-solving strategies.
-    
+
     This prompt template creates comprehensive guidance for finding alternative
     solutions when current approaches fail or prove inadequate.
     """
@@ -750,10 +1047,10 @@ Focus on actionable, practical alternatives that directly address the user's goa
 def create_default_system_prompt(operation_type: str) -> str:
     """
     Create a default system prompt for LLM operations.
-    
+
     Args:
         operation_type: Type of operation (extraction, synthesis, analysis, etc.)
-        
+
     Returns:
         Default system prompt for the operation type
     """
@@ -776,11 +1073,11 @@ def create_default_system_prompt(operation_type: str) -> str:
 def build_context_string(results: list[dict[str, Any]], max_length: int = 2000) -> str:
     """
     Build a context string from vector search results for LLM synthesis.
-    
+
     Args:
         results: List of vector search results
         max_length: Maximum length per result
-        
+
     Returns:
         Formatted context string for LLM input
     """
@@ -810,6 +1107,12 @@ Content: {content}
 
 # Export all prompt-related functionality
 __all__ = [
+    # Pydantic models
+    "ContentAnalysisPromptArgs",
+    "ExtractionPromptArgs",
+    "RetryPromptArgs",
+    "SynthesisPromptArgs",
+    # Functions
     "alternative_approaches",
     "build_context_string",
     "content_analysis",
@@ -821,6 +1124,10 @@ __all__ = [
     "error_recovery_suggestions",
     "mcp",
     "query_expansion",
+    "register_prompt_templates",
     "structured_extraction",
+    # Validation functions
+    "validate_extraction_args",
+    "validate_synthesis_args",
     "vector_synthesis"
 ]

@@ -14,7 +14,7 @@ import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from firecrawl.v2.utils.error_handler import (
@@ -93,7 +93,7 @@ class ErrorStatistics:
 class ErrorHandlingMiddleware(Middleware):
     """
     Comprehensive error handling and transformation middleware.
-    
+
     Provides error logging, transformation, statistics tracking, and
     standardized error response formatting for MCP clients.
     """
@@ -109,7 +109,7 @@ class ErrorHandlingMiddleware(Middleware):
     ):
         """
         Initialize error handling middleware.
-        
+
         Args:
             logger_name: Custom logger name
             include_traceback: Whether to include traceback in error responses
@@ -133,7 +133,7 @@ class ErrorHandlingMiddleware(Middleware):
             'api_key', 'token', 'password', 'secret', 'auth', 'authorization'
         }
 
-    async def on_message(self, context: MiddlewareContext, call_next):
+    async def on_message(self, context: MiddlewareContext, call_next: Callable[..., Any]) -> Any:
         """Handle all messages with comprehensive error processing."""
         try:
             return await call_next(context)
@@ -160,9 +160,9 @@ class ErrorHandlingMiddleware(Middleware):
                         await context.fastmcp_context.error(f"Error in error callback: {callback_error}")
 
             # Re-raise the processed error
-            raise processed_error
+            raise processed_error from error
 
-    async def _process_error(self, error: Exception, context: MiddlewareContext) -> Exception:
+    async def _process_error(self, error: Exception, context: MiddlewareContext) -> Exception:  # noqa: PLR0911
         """Process and potentially transform an error."""
         # If transformation is disabled, return original error
         if not self.transform_errors:
@@ -173,7 +173,9 @@ class ErrorHandlingMiddleware(Middleware):
 
         # Transform Firecrawl errors to MCP errors
         if isinstance(error, FirecrawlError):
-            return handle_firecrawl_error(error, error_context)
+            # Convert context dict to string for handle_firecrawl_error
+            context_str = str(error_context) if error_context else None
+            return handle_firecrawl_error(error, context_str)
 
         # Transform standard exceptions to appropriate MCP errors
         if isinstance(error, ValueError):
@@ -245,10 +247,7 @@ class ErrorHandlingMiddleware(Middleware):
 
     def _mask_sensitive_dict(self, data: dict[str, Any]) -> dict[str, Any]:
         """Mask sensitive data in dictionary."""
-        if not isinstance(data, dict):
-            return data
-
-        masked = {}
+        masked: dict[str, Any] = {}
         for key, value in data.items():
             key_lower = key.lower()
 
@@ -258,7 +257,7 @@ class ErrorHandlingMiddleware(Middleware):
                 else:
                     masked[key] = value
             elif isinstance(value, dict):
-                masked[key] = self._mask_sensitive_dict(value)
+                masked[key] = self._mask_sensitive_dict(cast("dict[str, Any]", value))
             else:
                 masked[key] = value
 
@@ -297,7 +296,7 @@ class ErrorHandlingMiddleware(Middleware):
 class RetryMiddleware(Middleware):
     """
     Automatic retry middleware with exponential backoff.
-    
+
     Provides automatic retry logic for transient failures with configurable
     retry policies and exponential backoff.
     """
@@ -314,7 +313,7 @@ class RetryMiddleware(Middleware):
     ):
         """
         Initialize retry middleware.
-        
+
         Args:
             max_retries: Maximum number of retry attempts
             base_delay: Base delay between retries in seconds
@@ -340,7 +339,7 @@ class RetryMiddleware(Middleware):
             RequestTimeoutError
         )
 
-    async def on_request(self, context: MiddlewareContext, call_next):
+    async def on_request(self, context: MiddlewareContext, call_next: Callable[..., Any]) -> Any:
         """Apply retry logic to requests."""
         last_error = None
 
@@ -415,7 +414,7 @@ class RetryMiddleware(Middleware):
 class CircuitBreakerMiddleware(Middleware):
     """
     Circuit breaker middleware to prevent cascading failures.
-    
+
     Implements circuit breaker pattern to temporarily stop calling
     failing services and allow them time to recover.
     """
@@ -428,7 +427,7 @@ class CircuitBreakerMiddleware(Middleware):
     ):
         """
         Initialize circuit breaker middleware.
-        
+
         Args:
             failure_threshold: Number of failures before opening circuit
             recovery_timeout: Time to wait before attempting recovery
@@ -449,7 +448,7 @@ class CircuitBreakerMiddleware(Middleware):
         self.last_failure_time = 0.0
         self.state = "CLOSED"  # CLOSED, OPEN, HALF_OPEN
 
-    async def on_request(self, context: MiddlewareContext, call_next):
+    async def on_request(self, context: MiddlewareContext, call_next: Callable[..., Any]) -> Any:
         """Apply circuit breaker logic."""
         current_time = time.time()
 
@@ -516,10 +515,3 @@ class CircuitBreakerMiddleware(Middleware):
         self.failure_count = 0
         self.last_failure_time = 0.0
         self.state = "CLOSED"
-
-
-# Factory functions removed - use direct instantiation with FastMCP
-# Example:
-# mcp.add_middleware(ErrorHandlingMiddleware(include_traceback=True, transform_errors=True))
-# mcp.add_middleware(RetryMiddleware(max_retries=3, base_delay=1.0))
-# mcp.add_middleware(CircuitBreakerMiddleware(failure_threshold=5))

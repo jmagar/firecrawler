@@ -16,9 +16,8 @@ See CLAUDE.md for comprehensive guidance on FastMCP patterns.
 from .base import (
     extract_domain,
     format_file_size,
-    get_client,
-    get_config,
     get_file_extension,
+    get_server_info,
     sanitize_filename,
     truncate_text,
     validate_url,
@@ -28,9 +27,8 @@ from .base import (
 __all__ = [
     "extract_domain",
     "format_file_size",
-    "get_client",
-    "get_config",
     "get_file_extension",
+    "get_server_info",
     "sanitize_filename",
     "truncate_text",
     "validate_url",

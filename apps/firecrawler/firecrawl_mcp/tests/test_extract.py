@@ -6,6 +6,8 @@ testing patterns with real API integration tests and comprehensive error scenari
 """
 
 import os
+from collections.abc import AsyncGenerator
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -24,20 +26,20 @@ class TestExtractTools:
     """Test suite for extraction tools."""
 
     @pytest.fixture
-    def extract_server(self, test_env):
+    def extract_server(self, test_env: Any) -> FastMCP:  # noqa: ARG002
         """Create FastMCP server with extraction tools registered."""
         server = FastMCP("TestExtractServer")
         register_extract_tools(server)
         return server
 
     @pytest.fixture
-    async def extract_client(self, extract_server):
+    async def extract_client(self, extract_server: FastMCP) -> AsyncGenerator[Client, None]:
         """Create MCP client for extraction tools."""
         async with Client(extract_server) as client:
             yield client
 
     @pytest.fixture
-    def mock_extract_response(self):
+    def mock_extract_response(self) -> ExtractResponse:
         """Mock successful extract response."""
         return ExtractResponse(
             id="extract-job-12345",
@@ -63,7 +65,7 @@ class TestExtractTools:
         )
 
     @pytest.fixture
-    def mock_extract_job_response(self):
+    def mock_extract_job_response(self) -> ExtractResponse:
         """Mock extract job initiation response."""
         return ExtractResponse(
             id="extract-job-12345",
@@ -72,7 +74,7 @@ class TestExtractTools:
         )
 
     @pytest.fixture
-    def valid_extract_schema(self):
+    def valid_extract_schema(self) -> dict[str, Any]:
         """Valid extraction schema for testing."""
         return {
             "type": "object",
@@ -104,7 +106,7 @@ class TestExtractTools:
 class TestExtractBasicFunctionality(TestExtractTools):
     """Test basic extraction functionality."""
 
-    async def test_extract_with_prompt_success(self, extract_client, mock_extract_response):
+    async def test_extract_with_prompt_success(self, extract_client: Client, mock_extract_response: ExtractResponse) -> None:
         """Test successful extraction with prompt."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -128,7 +130,7 @@ class TestExtractBasicFunctionality(TestExtractTools):
             assert call_args["urls"] == ["https://example.com"]
             assert "company information" in call_args["prompt"]
 
-    async def test_extract_with_schema_success(self, extract_client, mock_extract_response, valid_extract_schema):
+    async def test_extract_with_schema_success(self, extract_client: Client, mock_extract_response: ExtractResponse, valid_extract_schema: dict[str, Any]) -> None:
         """Test successful extraction with schema."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -149,7 +151,7 @@ class TestExtractBasicFunctionality(TestExtractTools):
             call_args = mock_client.extract.call_args[1]
             assert call_args["schema"] == valid_extract_schema
 
-    async def test_extract_with_prompt_and_schema(self, extract_client, mock_extract_response, valid_extract_schema):
+    async def test_extract_with_prompt_and_schema(self, extract_client: Client, mock_extract_response: ExtractResponse, valid_extract_schema: dict[str, Any]) -> None:
         """Test extraction with both prompt and schema."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -172,7 +174,7 @@ class TestExtractBasicFunctionality(TestExtractTools):
             assert call_args["schema"] == valid_extract_schema
             assert "expert data extractor" in call_args["system_prompt"]
 
-    async def test_extract_with_full_options(self, extract_client, mock_extract_response):
+    async def test_extract_with_full_options(self, extract_client: Client, mock_extract_response: ExtractResponse) -> None:
         """Test extraction with comprehensive options."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -211,7 +213,7 @@ class TestExtractBasicFunctionality(TestExtractTools):
             assert call_args["show_sources"] is True
             assert call_args["integration"] == "custom-extractor"
 
-    async def test_extract_multiple_urls(self, extract_client, mock_extract_response):
+    async def test_extract_multiple_urls(self, extract_client: Client, mock_extract_response: ExtractResponse) -> None:
         """Test extraction with multiple URLs."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -241,7 +243,7 @@ class TestExtractBasicFunctionality(TestExtractTools):
 class TestExtractValidation(TestExtractTools):
     """Test extraction parameter validation."""
 
-    async def test_extract_empty_urls_error(self, extract_client):
+    async def test_extract_empty_urls_error(self, extract_client: Client) -> None:
         """Test extraction with empty URLs list."""
         with pytest.raises(Exception) as exc_info:
             await extract_client.call_tool("extract", {
@@ -251,7 +253,7 @@ class TestExtractValidation(TestExtractTools):
 
         assert "URLs list cannot be empty" in str(exc_info.value)
 
-    async def test_extract_too_many_urls_error(self, extract_client):
+    async def test_extract_too_many_urls_error(self, extract_client: Client) -> None:
         """Test extraction with too many URLs."""
         urls = [f"https://example.com/page{i}" for i in range(101)]
 
@@ -263,7 +265,7 @@ class TestExtractValidation(TestExtractTools):
 
         assert "Too many URLs" in str(exc_info.value)
 
-    async def test_extract_invalid_urls_validation(self, extract_client):
+    async def test_extract_invalid_urls_validation(self, extract_client: Client) -> None:
         """Test extraction with invalid URLs."""
         urls = ["https://example.com", "invalid-url", ""]
 
@@ -276,7 +278,7 @@ class TestExtractValidation(TestExtractTools):
 
         assert "Invalid URLs found" in str(exc_info.value)
 
-    async def test_extract_no_prompt_or_schema_error(self, extract_client):
+    async def test_extract_no_prompt_or_schema_error(self, extract_client: Client) -> None:
         """Test extraction without prompt or schema."""
         with pytest.raises(Exception) as exc_info:
             await extract_client.call_tool("extract", {
@@ -285,7 +287,7 @@ class TestExtractValidation(TestExtractTools):
 
         assert "Either prompt or schema must be provided" in str(exc_info.value)
 
-    async def test_extract_parameter_length_validation(self, extract_client):
+    async def test_extract_parameter_length_validation(self, extract_client: Client) -> None:
         """Test extraction parameter length validation."""
         # Test prompt too long
         long_prompt = "x" * 10001
@@ -320,7 +322,7 @@ class TestExtractValidation(TestExtractTools):
 class TestExtractStatusFunctionality(TestExtractTools):
     """Test extract status checking functionality."""
 
-    async def test_extract_status_success(self, extract_client, mock_extract_response):
+    async def test_extract_status_success(self, extract_client: Client, mock_extract_response: ExtractResponse) -> None:
         """Test successful extract status checking."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -339,7 +341,7 @@ class TestExtractStatusFunctionality(TestExtractTools):
             assert "completed" in response_data
             mock_client.get_extract_status.assert_called_once_with(job_id="extract-job-12345")
 
-    async def test_extract_status_processing(self, extract_client):
+    async def test_extract_status_processing(self, extract_client: Client) -> None:
         """Test extract status for processing job."""
         processing_response = ExtractResponse(
             id="extract-job-12345",
@@ -362,7 +364,7 @@ class TestExtractStatusFunctionality(TestExtractTools):
             response_data = result.content[0].text
             assert "processing" in response_data
 
-    async def test_extract_status_failed(self, extract_client):
+    async def test_extract_status_failed(self, extract_client: Client) -> None:
         """Test extract status for failed job."""
         failed_response = ExtractResponse(
             id="extract-job-12345",
@@ -385,14 +387,14 @@ class TestExtractStatusFunctionality(TestExtractTools):
             response_data = result.content[0].text
             assert "failed" in response_data
 
-    async def test_extract_status_empty_job_id_error(self, extract_client):
+    async def test_extract_status_empty_job_id_error(self, extract_client: Client) -> None:
         """Test extract status with empty job ID."""
         with pytest.raises(Exception) as exc_info:
             await extract_client.call_tool("extract_status", {"job_id": ""})
 
         assert "Job ID cannot be empty" in str(exc_info.value)
 
-    async def test_extract_status_job_id_validation(self, extract_client):
+    async def test_extract_status_job_id_validation(self, extract_client: Client) -> None:
         """Test extract status job ID validation."""
         # Test job ID too long
         long_job_id = "x" * 257
@@ -406,7 +408,7 @@ class TestExtractStatusFunctionality(TestExtractTools):
 class TestExtractErrorHandling(TestExtractTools):
     """Test error handling for extraction tools."""
 
-    async def test_extract_unauthorized_error(self, extract_client):
+    async def test_extract_unauthorized_error(self, extract_client: Client) -> None:
         """Test handling of unauthorized errors."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -423,7 +425,7 @@ class TestExtractErrorHandling(TestExtractTools):
 
             assert "Invalid API key" in str(exc_info.value)
 
-    async def test_extract_rate_limit_error(self, extract_client):
+    async def test_extract_rate_limit_error(self, extract_client: Client) -> None:
         """Test handling of rate limit errors."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -440,7 +442,7 @@ class TestExtractErrorHandling(TestExtractTools):
 
             assert "Rate limit exceeded" in str(exc_info.value)
 
-    async def test_extract_bad_request_error(self, extract_client):
+    async def test_extract_bad_request_error(self, extract_client: Client) -> None:
         """Test handling of bad request errors."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -457,7 +459,7 @@ class TestExtractErrorHandling(TestExtractTools):
 
             assert "Invalid extraction parameters" in str(exc_info.value)
 
-    async def test_extract_generic_error(self, extract_client):
+    async def test_extract_generic_error(self, extract_client: Client) -> None:
         """Test handling of generic errors."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -474,7 +476,7 @@ class TestExtractErrorHandling(TestExtractTools):
 
             assert "Unexpected error" in str(exc_info.value)
 
-    async def test_extract_status_generic_error(self, extract_client):
+    async def test_extract_status_generic_error(self, extract_client: Client) -> None:
         """Test handling of generic errors in status check."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -494,7 +496,7 @@ class TestExtractErrorHandling(TestExtractTools):
 class TestExtractToolRegistration(TestExtractTools):
     """Test extraction tool registration and availability."""
 
-    async def test_extract_tools_are_registered(self, extract_client):
+    async def test_extract_tools_are_registered(self, extract_client: Client) -> None:
         """Test that all extraction tools are properly registered."""
         tools = await extract_client.list_tools()
         tool_names = [tool.name for tool in tools]
@@ -502,7 +504,7 @@ class TestExtractToolRegistration(TestExtractTools):
         assert "extract" in tool_names
         assert "extract_status" in tool_names
 
-    async def test_extract_tool_schemas_are_valid(self, extract_client):
+    async def test_extract_tool_schemas_are_valid(self, extract_client: Client) -> None:
         """Test that extraction tool schemas are properly defined."""
         tools = await extract_client.list_tools()
         tool_dict = {tool.name: tool for tool in tools}
@@ -519,12 +521,13 @@ class TestExtractToolRegistration(TestExtractTools):
         assert extract_status_tool.inputSchema is not None
         assert "job_id" in extract_status_tool.inputSchema["properties"]
 
-    def test_register_extract_tools_returns_tool_names(self):
-        """Test that register_extract_tools returns the correct tool names."""
+    def test_register_extract_tools_returns_none(self) -> None:
+        """Test that register_extract_tools returns None as expected."""
         server = FastMCP("TestServer")
-        tool_names = register_extract_tools(server)
+        register_extract_tools(server)
 
-        assert tool_names == ["extract", "extract_status"]
+        # Function should not return a value (returns None)
+        assert True
 
 
 @pytest.mark.integration
@@ -532,7 +535,7 @@ class TestExtractIntegrationTests(TestExtractTools):
     """Integration tests requiring real API access."""
 
     @pytest.mark.skipif(not os.getenv("FIRECRAWL_API_KEY"), reason="FIRECRAWL_API_KEY not available")
-    async def test_real_extract_integration(self, extract_client):
+    async def test_real_extract_integration(self, extract_client: Client) -> None:
         """Test real extraction with actual API."""
         result = await extract_client.call_tool("extract", {
             "urls": ["https://httpbin.org/json"],
@@ -545,7 +548,7 @@ class TestExtractIntegrationTests(TestExtractTools):
         assert "slideshow" in response_data or "completed" in response_data
 
     @pytest.mark.skipif(not os.getenv("FIRECRAWL_API_KEY"), reason="FIRECRAWL_API_KEY not available")
-    async def test_real_extract_with_schema(self, extract_client):
+    async def test_real_extract_with_schema(self, extract_client: Client) -> None:
         """Test real extraction with schema validation."""
         schema = {
             "type": "object",

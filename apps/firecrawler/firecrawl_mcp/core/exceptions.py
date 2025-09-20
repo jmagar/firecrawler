@@ -29,11 +29,11 @@ def handle_firecrawl_error(
 ) -> ToolError:
     """
     Convert Firecrawl errors to FastMCP ToolError with context.
-    
+
     Args:
         error: The original Firecrawl error
         context: Additional context string
-        
+
     Returns:
         ToolError: FastMCP-compatible error with enhanced information
     """
@@ -63,11 +63,11 @@ def handle_firecrawl_error(
 def create_tool_error(message: str, details: dict[str, Any] | None = None) -> ToolError:
     """
     Create a ToolError with optional details in the message.
-    
+
     Args:
         message: Error message
         details: Optional details to include in message
-        
+
     Returns:
         ToolError: FastMCP-compatible error
     """
@@ -83,7 +83,7 @@ def create_tool_error(message: str, details: dict[str, Any] | None = None) -> To
 def mcp_log_error(error: Exception, context: dict[str, Any] | None = None) -> None:
     """
     Log an error with context information.
-    
+
     Args:
         error: The error to log
         context: Additional context information
@@ -108,8 +108,10 @@ def mcp_log_error(error: Exception, context: dict[str, Any] | None = None) -> No
 class MCPError(Exception):
     """DEPRECATED: Use ToolError instead."""
 
-    def __init__(self, message: str, **kwargs):
+    def __init__(self, message: str, **kwargs: Any) -> None:
         super().__init__(message)
+        # Acknowledge kwargs for compatibility but don't use them
+        _ = kwargs
         logger.warning("MCPError is deprecated, use ToolError instead")
 
 
@@ -161,7 +163,7 @@ class MCPServerError(MCPError):
 def create_error_response(error: Exception) -> dict[str, Any]:
     """
     DEPRECATED: Create error response.
-    
+
     Use FastMCP's built-in error handling instead.
     """
     logger.warning("create_error_response() is deprecated")

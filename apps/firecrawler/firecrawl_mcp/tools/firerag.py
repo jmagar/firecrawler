@@ -7,13 +7,14 @@ comprehensive filtering, response size management, and pagination following
 FastMCP patterns.
 """
 
+import copy
 import json
 import logging
 import os
 import re
 from typing import Annotated, Any, Literal
 
-import asyncpg
+import asyncpg  # type: ignore[import-untyped]
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from firecrawl.v2.types import (
@@ -35,13 +36,13 @@ logger = logging.getLogger(__name__)
 async def get_document_by_id(document_id: str) -> dict[str, Any] | None:
     """
     Retrieve document from vector database by ID.
-    
+
     Args:
         document_id: The document ID (job_id in database)
-        
+
     Returns:
         Document data if found, None if not found
-        
+
     Raises:
         ToolError: If database connection fails or configuration is missing
     """
@@ -66,12 +67,12 @@ async def get_document_by_id(document_id: str) -> dict[str, Any] | None:
 def estimate_response_tokens(data: Any) -> int:
     """
     Estimate tokens using 3-chars-per-token approximation.
-    
+
     This provides a conservative estimate for MCP token limit checking.
-    
+
     Args:
         data: Any object to estimate tokens for
-        
+
     Returns:
         Estimated token count
     """
@@ -98,22 +99,22 @@ def optimize_response_size(
     vector_data: Any,
     target_tokens: int,
     current_estimate: int,
-    limit: int
+    _limit: int  # Unused parameter, keeping for API compatibility
 ) -> tuple[Any, dict[str, Any]]:
     """
     Progressive optimization levels to reduce response size.
-    
+
     Args:
         vector_data: Vector search data to optimize
         target_tokens: Target token count
         current_estimate: Current estimated token count
         synthesis_mode: Current synthesis mode
         limit: Current result limit
-        
+
     Returns:
         Tuple of (optimized_data, optimization_metadata)
     """
-    optimization_metadata = {
+    optimization_metadata: dict[str, Any] = {
         "original_estimate": current_estimate,
         "target_tokens": target_tokens,
         "optimization_level": 0,
@@ -128,7 +129,6 @@ def optimize_response_size(
         optimized_data = vector_data.model_copy(deep=True)
     else:
         # Fallback for non-Pydantic objects
-        import copy
         optimized_data = copy.deepcopy(vector_data)
 
     # Level 1: Reduce content truncation to 250 chars
@@ -326,18 +326,18 @@ async def paginate_vector_search(
 ) -> tuple[list[Any], dict[str, Any]]:
     """
     Make multiple vector_search calls with increasing offsets.
-    
+
     Args:
         client: Firecrawl client
         search_request: Base search request parameters
         pagination_config: Pagination configuration
         ctx: FastMCP context for logging
-        
+
     Returns:
         Tuple of (aggregated_results, pagination_metadata)
     """
-    all_results = []
-    pagination_metadata = {
+    all_results: list[Any] = []
+    pagination_metadata: dict[str, Any] = {
         "pages_fetched": 0,
         "total_results": 0,
         "stopped_reason": None
@@ -402,6 +402,7 @@ def _serialize_vector_data(
 ) -> dict[str, Any]:
     """Convert vector search data to plain Python structures."""
     try:
+        data: dict[str, Any]
         if hasattr(vector_data, 'model_dump'):
             data = vector_data.model_dump()
         else:
@@ -671,7 +672,7 @@ def register_firerag_tools(mcp: FastMCP) -> None:
 
             except FirecrawlError as e:
                 await ctx.error(f"Vector search failed: {e}")
-                raise handle_firecrawl_error(e, "vector search")
+                raise handle_firecrawl_error(e, "vector search") from e
 
             if not vector_data or not hasattr(vector_data, 'results'):
                 raise ToolError("Vector search returned no results or failed")
@@ -728,10 +729,10 @@ def register_firerag_tools(mcp: FastMCP) -> None:
 
         except FirecrawlError as e:
             await ctx.error(f"Firecrawl API error in FireRAG: {e}")
-            raise handle_firecrawl_error(e, "FireRAG vector search")
+            raise handle_firecrawl_error(e, "FireRAG vector search") from e
         except Exception as e:
             await ctx.error(f"Unexpected error in FireRAG: {e}")
-            raise ToolError(f"FireRAG search failed: {e!s}")
+            raise ToolError(f"FireRAG search failed: {e!s}") from e
 
     @mcp.tool(
         name="retrieve",
@@ -819,7 +820,11 @@ def register_firerag_tools(mcp: FastMCP) -> None:
                             "branchVersion", "contentType", "wordCount"
                         ]}
                     },
-                    "created_at": document_data.get("created_at").isoformat() if document_data.get("created_at") else None,
+                    "created_at": (
+                        document_data["created_at"].isoformat()
+                        if document_data.get("created_at") is not None
+                        else None
+                    ),
                 },
                 "message": "Document retrieved successfully"
             }
@@ -832,7 +837,7 @@ def register_firerag_tools(mcp: FastMCP) -> None:
             raise
         except Exception as e:
             await ctx.error(f"Unexpected error retrieving document {document_id}: {e}")
-            raise ToolError(f"Document retrieval failed: {e!s}")
+            raise ToolError(f"Document retrieval failed: {e!s}") from e
 
 
 # Export the registration function

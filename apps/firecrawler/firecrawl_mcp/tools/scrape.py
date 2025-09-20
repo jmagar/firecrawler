@@ -10,6 +10,7 @@ The tool uses FastMCP decorators, comprehensive annotations, Pydantic validation
 async patterns, intelligent parameter routing, and progress reporting.
 """
 
+import ast
 import logging
 from typing import Annotated, Any
 
@@ -36,15 +37,15 @@ async def _handle_single_scrape(
 ) -> Document:
     """
     Handle single URL scraping mode.
-    
+
     Args:
         ctx: MCP context for logging
         url: URL to scrape
         scrape_options: Optional scraping configuration
-        
+
     Returns:
         Document: The scraped document with content and metadata
-        
+
     Raises:
         ToolError: If scraping fails or configuration is invalid
     """
@@ -61,38 +62,11 @@ async def _handle_single_scrape(
         # Perform the scrape
         await ctx.info(f"Scraping URL with options: {scrape_options is not None}")
 
-        # Convert dict to ScrapeOptions if needed, or use dict directly
+        # Convert dict to kwargs
         scrape_kwargs = {}
         if scrape_options:
-            # If it's a dict, use it directly for kwargs
-            if isinstance(scrape_options, dict):
-                scrape_kwargs = {k: v for k, v in scrape_options.items() if v is not None}
-            else:
-                # Legacy: handle if it's still a ScrapeOptions object
-                field_mapping = {
-                    'formats': scrape_options.formats,
-                    'headers': scrape_options.headers,
-                    'include_tags': scrape_options.include_tags,
-                    'exclude_tags': scrape_options.exclude_tags,
-                    'only_main_content': scrape_options.only_main_content,
-                    'timeout': scrape_options.timeout,
-                    'wait_for': scrape_options.wait_for,
-                    'mobile': scrape_options.mobile,
-                    'parsers': scrape_options.parsers,
-                    'actions': scrape_options.actions,
-                    'location': scrape_options.location,
-                    'skip_tls_verification': scrape_options.skip_tls_verification,
-                    'remove_base64_images': scrape_options.remove_base64_images,
-                    'fast_mode': scrape_options.fast_mode,
-                    'use_mock': scrape_options.use_mock,
-                    'block_ads': scrape_options.block_ads,
-                    'proxy': scrape_options.proxy,
-                    'max_age': scrape_options.max_age,
-                    'store_in_cache': scrape_options.store_in_cache,
-                    'integration': scrape_options.integration,
-                }
-                # Only include non-None values
-                scrape_kwargs = {k: v for k, v in field_mapping.items() if v is not None}
+            # scrape_options is always a dict based on type annotation
+            scrape_kwargs = {k: v for k, v in scrape_options.items() if v is not None}
 
         # Debug: print what we're about to pass
         await ctx.info(f"DEBUG: Calling client.scrape with url='{url}' and kwargs: {list(scrape_kwargs.keys())}")
@@ -109,7 +83,7 @@ async def _handle_single_scrape(
     except FirecrawlError as e:
         error_msg = f"Firecrawl API error during scrape: {e}"
         await ctx.error(error_msg)
-        raise handle_firecrawl_error(e, "scrape")
+        raise handle_firecrawl_error(e, "scrape") from e
 
     except Exception as e:
         error_msg = f"Unexpected error during scrape: {e}"
@@ -127,7 +101,7 @@ async def _handle_batch_scrape(
 ) -> BatchScrapeResponse:
     """
     Handle batch URL scraping mode.
-    
+
     Args:
         ctx: MCP context for logging
         urls: List of URLs to scrape
@@ -135,10 +109,10 @@ async def _handle_batch_scrape(
         webhook: Optional webhook URL for completion notifications
         max_concurrency: Maximum concurrent scraping operations
         ignore_invalid_urls: Whether to ignore invalid URLs and continue
-        
+
     Returns:
         BatchScrapeResponse: Job information with ID and status URL
-        
+
     Raises:
         ToolError: If batch scrape fails to start or configuration is invalid
     """
@@ -179,31 +153,8 @@ async def _handle_batch_scrape(
         }
 
         if scrape_options:
-            if isinstance(scrape_options, dict):
-                # Add dict options to kwargs
-                batch_kwargs.update(scrape_options)
-            else:
-                # Legacy: handle if it's still a ScrapeOptions object
-                batch_kwargs.update({
-                    'formats': scrape_options.formats,
-                    'headers': scrape_options.headers,
-                    'include_tags': scrape_options.include_tags,
-                    'exclude_tags': scrape_options.exclude_tags,
-                    'only_main_content': scrape_options.only_main_content,
-                    'timeout': scrape_options.timeout,
-                    'wait_for': scrape_options.wait_for,
-                    'mobile': scrape_options.mobile,
-                    'parsers': scrape_options.parsers,
-                    'actions': scrape_options.actions,
-                    'location': scrape_options.location,
-                    'skip_tls_verification': scrape_options.skip_tls_verification,
-                    'remove_base64_images': scrape_options.remove_base64_images,
-                    'fast_mode': scrape_options.fast_mode,
-                    'block_ads': scrape_options.block_ads,
-                    'proxy': scrape_options.proxy,
-                    'max_age': scrape_options.max_age,
-                    'store_in_cache': scrape_options.store_in_cache,
-                })
+            # scrape_options is always a dict based on type annotation
+            batch_kwargs.update(scrape_options)
 
         # Remove None values
         batch_kwargs = {k: v for k, v in batch_kwargs.items() if v is not None}
@@ -221,7 +172,7 @@ async def _handle_batch_scrape(
     except FirecrawlError as e:
         error_msg = f"Firecrawl API error during batch scrape start: {e}"
         await ctx.error(error_msg)
-        raise handle_firecrawl_error(e, "batch_scrape")
+        raise handle_firecrawl_error(e, "batch_scrape") from e
 
     except Exception as e:
         error_msg = f"Unexpected error during batch scrape start: {e}"
@@ -232,27 +183,27 @@ async def _handle_batch_scrape(
 async def _handle_scrape_status(
     ctx: Context,
     job_id: str,
-    auto_paginate: bool,
-    max_pages: int | None,
-    max_results: int | None
+    _auto_paginate: bool,
+    _max_pages: int | None,
+    _max_results: int | None
 ) -> dict[str, Any]:
     """
     Handle batch scrape status checking mode - STATUS ONLY, NO DATA.
-    
+
     This function returns only scrape progress information and brief summaries.
     It does NOT return actual scraped content. Use vector search or other tools
     to retrieve actual scraped data.
-    
+
     Args:
         ctx: MCP context for logging
         job_id: Batch scrape job ID
-        auto_paginate: Whether to automatically fetch all pages of results (disabled for status)
-        max_pages: Maximum number of pages to fetch (ignored for status)
-        max_results: Maximum number of results to return (ignored for status)
-        
+        _auto_paginate: Whether to automatically fetch all pages of results (disabled for status)
+        _max_pages: Maximum number of pages to fetch (ignored for status)
+        _max_results: Maximum number of results to return (ignored for status)
+
     Returns:
         dict[str, Any]: Status information with concise summary, NO actual data
-        
+
     Raises:
         ToolError: If status check fails or job ID is invalid
     """
@@ -344,7 +295,7 @@ async def _handle_scrape_status(
     except FirecrawlError as e:
         error_msg = f"Firecrawl API error during batch status check: {e}"
         await ctx.error(error_msg)
-        raise handle_firecrawl_error(e, "batch_status")
+        raise handle_firecrawl_error(e, "batch_status") from e
 
     except Exception as e:
         error_msg = f"Unexpected error during batch status check: {e}"
@@ -418,10 +369,10 @@ def register_scrape_tools(mcp: FastMCP) -> None:
     ) -> Document | BatchScrapeResponse | dict[str, Any]:
         """
         Scrape single or multiple URLs with automatic mode detection.
-        
+
         This function intelligently handles both single URL scraping and batch scraping
         based on the input parameters. It also supports status checking for ongoing jobs.
-        
+
         Args:
             urls: Single URL (string) or multiple URLs (list) to scrape. If None and job_id
                 is provided, checks status of existing job.
@@ -437,40 +388,37 @@ def register_scrape_tools(mcp: FastMCP) -> None:
             max_concurrency: Maximum concurrent scraping operations (1-50).
             auto_paginate: Automatically fetch all result pages. Disabled for status checks.
             ctx: MCP context for logging and request metadata.
-        
+
         Returns:
             Dictionary containing either:
             - Scraped content (single URL mode)
-            - Batch job status and initial results (batch mode)  
+            - Batch job status and initial results (batch mode)
             - Job status information (status check mode)
-        
+
         Raises:
             ToolError: When required parameters are missing or API call fails.
-        
+
         Examples:
             # Single URL scraping
             >>> result = await scrape("https://example.com", scrape_options={"formats": ["markdown"]})
-            
+
             # Batch scraping
             >>> job = await scrape(["https://example1.com", "https://example2.com"])
-            
+
             # Status checking
             >>> status = await scrape(job_id="abc-123-def")
         """
         try:
             # Handle MCP serialization issue where arrays might be stringified
-            if urls and isinstance(urls, str):
-                # Check if it's a stringified array
-                if urls.startswith('[') and urls.endswith(']'):
-                    try:
-                        import ast
-                        parsed_urls = ast.literal_eval(urls)
-                        if isinstance(parsed_urls, list):
-                            await ctx.info(f"Detected stringified URL array, converting to list with {len(parsed_urls)} URLs")
-                            urls = parsed_urls
-                    except (ValueError, SyntaxError):
-                        # Not a valid stringified list, treat as single URL
-                        pass
+            if urls and isinstance(urls, str) and urls.startswith('[') and urls.endswith(']'):
+                try:
+                    parsed_urls = ast.literal_eval(urls)
+                    if isinstance(parsed_urls, list):
+                        await ctx.info(f"Detected stringified URL array, converting to list with {len(parsed_urls)} URLs")
+                        urls = parsed_urls
+                except (ValueError, SyntaxError):
+                    # Not a valid stringified list, treat as single URL
+                    pass
 
             # Mode detection and parameter validation
             if job_id and urls:
@@ -507,8 +455,6 @@ def register_scrape_tools(mcp: FastMCP) -> None:
             error_msg = f"Unexpected error in unified scrape tool: {e}"
             await ctx.error(error_msg)
             raise ToolError(error_msg) from e
-
-    return ["scrape"]
 
 
 # Tool exports for registration

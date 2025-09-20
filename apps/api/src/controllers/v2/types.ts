@@ -331,6 +331,13 @@ const baseScrapeOptions = z
     proxy: z.enum(["basic", "stealth", "auto"]).default("auto"),
     maxAge: z.number().int().gte(0).safe().optional(),
     storeInCache: z.boolean().default(true),
+
+    // Phase 1: Enhanced noise reduction controls
+    enhancedNoiseReduction: z.boolean().default(true).optional(),
+    contentQualityThreshold: z.number().min(0).max(1).default(0.3).optional(),
+    maxNavigationRatio: z.number().min(0).max(1).default(0.4).optional(),
+    aggressiveFiltering: z.boolean().default(false).optional(),
+
     // @deprecated
     __searchPreviewToken: z.string().optional(),
     __experimental_omce: z.boolean().default(false).optional(),

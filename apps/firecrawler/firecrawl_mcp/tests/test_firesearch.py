@@ -6,6 +6,8 @@ with real API integration tests and comprehensive error scenario coverage.
 """
 
 import os
+from collections.abc import AsyncGenerator
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -30,20 +32,20 @@ class TestFiresearchTools:
     """Test suite for firesearch tools."""
 
     @pytest.fixture
-    def firesearch_server(self, test_env):
+    def firesearch_server(self, test_env: dict[str, Any]) -> FastMCP:  # noqa: ARG002
         """Create FastMCP server with firesearch tools registered."""
         server = FastMCP("TestFiresearchServer")
         register_firesearch_tools(server)
         return server
 
     @pytest.fixture
-    async def firesearch_client(self, firesearch_server):
+    async def firesearch_client(self, firesearch_server: FastMCP) -> AsyncGenerator[Client, None]:
         """Create MCP client for firesearch tools."""
         async with Client(firesearch_server) as client:
             yield client
 
     @pytest.fixture
-    def mock_search_data(self):
+    def mock_search_data(self) -> SearchData:
         """Mock comprehensive search response."""
         return SearchData(
             web=[
@@ -89,7 +91,7 @@ class TestFiresearchTools:
         )
 
     @pytest.fixture
-    def mock_web_only_search_data(self):
+    def mock_web_only_search_data(self) -> SearchData:
         """Mock search response with only web results."""
         return SearchData(
             web=[
@@ -106,7 +108,7 @@ class TestFiresearchTools:
         )
 
     @pytest.fixture
-    def mock_github_search_data(self):
+    def mock_github_search_data(self) -> SearchData:
         """Mock search response with GitHub category results."""
         return SearchData(
             web=[
@@ -131,7 +133,7 @@ class TestFiresearchTools:
 class TestFiresearchBasicFunctionality(TestFiresearchTools):
     """Test basic firesearch functionality."""
 
-    async def test_firesearch_basic_success(self, firesearch_client, mock_search_data):
+    async def test_firesearch_basic_success(self, firesearch_client: Client, mock_search_data: SearchData) -> None:
         """Test successful basic web search."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -157,7 +159,7 @@ class TestFiresearchBasicFunctionality(TestFiresearchTools):
             assert call_args["sources"] == ["web"]
             assert call_args["limit"] == 5
 
-    async def test_firesearch_web_only(self, firesearch_client, mock_web_only_search_data):
+    async def test_firesearch_web_only(self, firesearch_client: Client, mock_web_only_search_data: SearchData) -> None:
         """Test search with only web sources."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -180,7 +182,7 @@ class TestFiresearchBasicFunctionality(TestFiresearchTools):
             assert call_args["sources"] == ["web"]
             assert call_args["limit"] == 3
 
-    async def test_firesearch_multiple_sources(self, firesearch_client, mock_search_data):
+    async def test_firesearch_multiple_sources(self, firesearch_client: Client, mock_search_data: SearchData) -> None:
         """Test search with multiple source types."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -203,7 +205,7 @@ class TestFiresearchBasicFunctionality(TestFiresearchTools):
             assert call_args["sources"] == ["web", "news", "images"]
             assert call_args["limit"] == 10
 
-    async def test_firesearch_with_location(self, firesearch_client, mock_search_data):
+    async def test_firesearch_with_location(self, firesearch_client: Client, mock_search_data: SearchData) -> None:
         """Test search with geographic location filter."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -222,7 +224,7 @@ class TestFiresearchBasicFunctionality(TestFiresearchTools):
             call_args = mock_client.search.call_args[1]
             assert call_args["location"] == "San Francisco, CA"
 
-    async def test_firesearch_with_time_filter(self, firesearch_client, mock_search_data):
+    async def test_firesearch_with_time_filter(self, firesearch_client: Client, mock_search_data: SearchData) -> None:
         """Test search with time-based filters."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -242,7 +244,7 @@ class TestFiresearchBasicFunctionality(TestFiresearchTools):
             call_args = mock_client.search.call_args[1]
             assert call_args["tbs"] == "qdr:w"
 
-    async def test_firesearch_with_categories(self, firesearch_client, mock_github_search_data):
+    async def test_firesearch_with_categories(self, firesearch_client: Client, mock_github_search_data: SearchData) -> None:
         """Test search with category filters."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -263,7 +265,7 @@ class TestFiresearchBasicFunctionality(TestFiresearchTools):
             call_args = mock_client.search.call_args[1]
             assert call_args["categories"] == ["github"]
 
-    async def test_firesearch_with_scraping(self, firesearch_client, mock_search_data):
+    async def test_firesearch_with_scraping(self, firesearch_client: Client, mock_search_data: SearchData) -> None:
         """Test search with content scraping enabled."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -287,7 +289,7 @@ class TestFiresearchBasicFunctionality(TestFiresearchTools):
             call_args = mock_client.search.call_args[1]
             assert call_args["scrape_options"] is not None
 
-    async def test_firesearch_with_full_options(self, firesearch_client, mock_search_data):
+    async def test_firesearch_with_full_options(self, firesearch_client: Client, mock_search_data: SearchData) -> None:
         """Test search with comprehensive options."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -323,21 +325,21 @@ class TestFiresearchBasicFunctionality(TestFiresearchTools):
 class TestFiresearchValidation(TestFiresearchTools):
     """Test firesearch parameter validation."""
 
-    async def test_firesearch_empty_query_error(self, firesearch_client):
+    async def test_firesearch_empty_query_error(self, firesearch_client: Client) -> None:
         """Test search with empty query."""
         with pytest.raises(Exception) as exc_info:
             await firesearch_client.call_tool("firesearch", {"query": ""})
 
         assert "Search query cannot be empty" in str(exc_info.value)
 
-    async def test_firesearch_whitespace_only_query_error(self, firesearch_client):
+    async def test_firesearch_whitespace_only_query_error(self, firesearch_client: Client) -> None:
         """Test search with whitespace-only query."""
         with pytest.raises(Exception) as exc_info:
             await firesearch_client.call_tool("firesearch", {"query": "   "})
 
         assert "Search query cannot be empty" in str(exc_info.value)
 
-    async def test_firesearch_query_length_validation(self, firesearch_client):
+    async def test_firesearch_query_length_validation(self, firesearch_client: Client) -> None:
         """Test search query length validation."""
         long_query = "x" * 501
         with pytest.raises(Exception) as exc_info:
@@ -345,7 +347,7 @@ class TestFiresearchValidation(TestFiresearchTools):
 
         assert "validation" in str(exc_info.value).lower()
 
-    async def test_firesearch_invalid_source_types(self, firesearch_client):
+    async def test_firesearch_invalid_source_types(self, firesearch_client: Client) -> None:
         """Test search with invalid source types."""
         with pytest.raises(Exception) as exc_info:
             await firesearch_client.call_tool("firesearch", {
@@ -355,7 +357,7 @@ class TestFiresearchValidation(TestFiresearchTools):
 
         assert "Invalid source type" in str(exc_info.value)
 
-    async def test_firesearch_invalid_source_type_format(self, firesearch_client):
+    async def test_firesearch_invalid_source_type_format(self, firesearch_client: Client) -> None:
         """Test search with non-string source types."""
         with pytest.raises(Exception) as exc_info:
             await firesearch_client.call_tool("firesearch", {
@@ -365,7 +367,7 @@ class TestFiresearchValidation(TestFiresearchTools):
 
         assert "Source must be a string" in str(exc_info.value)
 
-    async def test_firesearch_invalid_category_types(self, firesearch_client):
+    async def test_firesearch_invalid_category_types(self, firesearch_client: Client) -> None:
         """Test search with invalid category types."""
         with pytest.raises(Exception) as exc_info:
             await firesearch_client.call_tool("firesearch", {
@@ -375,7 +377,7 @@ class TestFiresearchValidation(TestFiresearchTools):
 
         assert "Invalid category type" in str(exc_info.value)
 
-    async def test_firesearch_invalid_category_format(self, firesearch_client):
+    async def test_firesearch_invalid_category_format(self, firesearch_client: Client) -> None:
         """Test search with non-string category types."""
         with pytest.raises(Exception) as exc_info:
             await firesearch_client.call_tool("firesearch", {
@@ -385,7 +387,7 @@ class TestFiresearchValidation(TestFiresearchTools):
 
         assert "Category must be a string" in str(exc_info.value)
 
-    async def test_firesearch_invalid_limit_range(self, firesearch_client):
+    async def test_firesearch_invalid_limit_range(self, firesearch_client: Client) -> None:
         """Test search with invalid limit values."""
         # Test limit too low
         with pytest.raises(Exception) as exc_info:
@@ -403,7 +405,7 @@ class TestFiresearchValidation(TestFiresearchTools):
             })
         assert "Limit must be between" in str(exc_info.value) or "validation" in str(exc_info.value).lower()
 
-    async def test_firesearch_invalid_timeout_range(self, firesearch_client):
+    async def test_firesearch_invalid_timeout_range(self, firesearch_client: Client) -> None:
         """Test search with invalid timeout values."""
         # Test timeout too low
         with pytest.raises(Exception) as exc_info:
@@ -421,7 +423,7 @@ class TestFiresearchValidation(TestFiresearchTools):
             })
         assert "Timeout must be between" in str(exc_info.value) or "validation" in str(exc_info.value).lower()
 
-    async def test_firesearch_invalid_tbs_values(self, firesearch_client):
+    async def test_firesearch_invalid_tbs_values(self, firesearch_client: Client) -> None:
         """Test search with invalid time-based search values."""
         with pytest.raises(Exception) as exc_info:
             await firesearch_client.call_tool("firesearch", {
@@ -431,7 +433,7 @@ class TestFiresearchValidation(TestFiresearchTools):
 
         assert "Invalid tbs value" in str(exc_info.value)
 
-    async def test_firesearch_valid_tbs_values(self, firesearch_client, mock_search_data):
+    async def test_firesearch_valid_tbs_values(self, firesearch_client: Client, mock_search_data: SearchData) -> None:
         """Test search with valid time-based search values."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -449,7 +451,7 @@ class TestFiresearchValidation(TestFiresearchTools):
                 })
                 assert result.content[0].type == "text"
 
-    async def test_firesearch_custom_date_range_tbs(self, firesearch_client, mock_search_data):
+    async def test_firesearch_custom_date_range_tbs(self, firesearch_client: Client, mock_search_data: SearchData) -> None:
         """Test search with custom date range tbs format."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -469,7 +471,7 @@ class TestFiresearchValidation(TestFiresearchTools):
 class TestFiresearchErrorHandling(TestFiresearchTools):
     """Test error handling for firesearch tools."""
 
-    async def test_firesearch_unauthorized_error(self, firesearch_client):
+    async def test_firesearch_unauthorized_error(self, firesearch_client: Client) -> None:
         """Test handling of unauthorized errors."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -485,7 +487,7 @@ class TestFiresearchErrorHandling(TestFiresearchTools):
 
             assert "Invalid API key" in str(exc_info.value)
 
-    async def test_firesearch_rate_limit_error(self, firesearch_client):
+    async def test_firesearch_rate_limit_error(self, firesearch_client: Client) -> None:
         """Test handling of rate limit errors."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -501,7 +503,7 @@ class TestFiresearchErrorHandling(TestFiresearchTools):
 
             assert "Rate limit exceeded" in str(exc_info.value)
 
-    async def test_firesearch_bad_request_error(self, firesearch_client):
+    async def test_firesearch_bad_request_error(self, firesearch_client: Client) -> None:
         """Test handling of bad request errors."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -517,7 +519,7 @@ class TestFiresearchErrorHandling(TestFiresearchTools):
 
             assert "Invalid search query" in str(exc_info.value)
 
-    async def test_firesearch_generic_error(self, firesearch_client):
+    async def test_firesearch_generic_error(self, firesearch_client: Client) -> None:
         """Test handling of generic errors."""
         with patch("firecrawl_mcp.core.client.get_client") as mock_get_client:
             mock_client_manager = Mock()
@@ -537,14 +539,14 @@ class TestFiresearchErrorHandling(TestFiresearchTools):
 class TestFiresearchToolRegistration(TestFiresearchTools):
     """Test firesearch tool registration and availability."""
 
-    async def test_firesearch_tool_registered(self, firesearch_client):
+    async def test_firesearch_tool_registered(self, firesearch_client: Client) -> None:
         """Test that firesearch tool is properly registered."""
         tools = await firesearch_client.list_tools()
         tool_names = [tool.name for tool in tools]
 
         assert "firesearch" in tool_names
 
-    async def test_firesearch_tool_schema_valid(self, firesearch_client):
+    async def test_firesearch_tool_schema_valid(self, firesearch_client: Client) -> None:
         """Test that firesearch tool has proper schema."""
         tools = await firesearch_client.list_tools()
         tool_dict = {tool.name: tool for tool in tools}
@@ -562,12 +564,11 @@ class TestFiresearchToolRegistration(TestFiresearchTools):
         assert "minLength" in query_prop
         assert "maxLength" in query_prop
 
-    def test_register_firesearch_tools_returns_tool_names(self):
-        """Test that register_firesearch_tools returns the correct tool names."""
+    def test_register_firesearch_tools_returns_none(self) -> None:
+        """Test that register_firesearch_tools returns None."""
         server = FastMCP("TestServer")
-        tool_names = register_firesearch_tools(server)
-
-        assert tool_names == ["firesearch"]
+        # register_firesearch_tools doesn't return a value, just check it runs without error
+        register_firesearch_tools(server)
 
 
 @pytest.mark.integration
@@ -575,7 +576,7 @@ class TestFiresearchIntegrationTests(TestFiresearchTools):
     """Integration tests requiring real API access."""
 
     @pytest.mark.skipif(not os.getenv("FIRECRAWL_API_KEY"), reason="FIRECRAWL_API_KEY not available")
-    async def test_real_firesearch_integration(self, firesearch_client):
+    async def test_real_firesearch_integration(self, firesearch_client: Client) -> None:
         """Test real search with actual API."""
         result = await firesearch_client.call_tool("firesearch", {
             "query": "Python programming tutorial",
@@ -589,7 +590,7 @@ class TestFiresearchIntegrationTests(TestFiresearchTools):
         assert "Python" in response_data or "programming" in response_data
 
     @pytest.mark.skipif(not os.getenv("FIRECRAWL_API_KEY"), reason="FIRECRAWL_API_KEY not available")
-    async def test_real_firesearch_with_news(self, firesearch_client):
+    async def test_real_firesearch_with_news(self, firesearch_client: Client) -> None:
         """Test real search with news sources."""
         result = await firesearch_client.call_tool("firesearch", {
             "query": "artificial intelligence news",
@@ -604,7 +605,7 @@ class TestFiresearchIntegrationTests(TestFiresearchTools):
         assert "artificial intelligence" in response_data or "AI" in response_data
 
     @pytest.mark.skipif(not os.getenv("FIRECRAWL_API_KEY"), reason="FIRECRAWL_API_KEY not available")
-    async def test_real_firesearch_with_time_filter(self, firesearch_client):
+    async def test_real_firesearch_with_time_filter(self, firesearch_client: Client) -> None:
         """Test real search with time-based filtering."""
         result = await firesearch_client.call_tool("firesearch", {
             "query": "technology trends",

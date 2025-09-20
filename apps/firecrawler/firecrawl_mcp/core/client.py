@@ -19,14 +19,14 @@ logger = logging.getLogger(__name__)
 def get_firecrawl_client() -> FirecrawlClient:
     """
     Create a Firecrawl client using environment variables.
-    
+
     Uses FastMCP's environment variable pattern instead of global singletons.
     This function creates a new client each time it's called, following
     FastMCP's stateless patterns.
-    
+
     Returns:
         FirecrawlClient: Configured Firecrawl client
-        
+
     Raises:
         ToolError: If client cannot be created or configuration is invalid
     """
@@ -77,7 +77,7 @@ def get_firecrawl_client() -> FirecrawlClient:
             api_url=api_url,
             timeout=timeout,
             max_retries=max_retries,
-            backoff_factor=backoff_factor
+            backoff_factor=backoff_factor,
         )
 
         logger.debug(f"Created Firecrawl client for {api_url}")
@@ -96,14 +96,14 @@ def get_firecrawl_client() -> FirecrawlClient:
 def get_client_status() -> dict[str, Any]:
     """
     Get Firecrawl client connection status with self-hosted support.
-    
+
     Uses different health check approaches based on the target API:
     - Cloud instances: Use credit usage check
     - Self-hosted instances: Use alternative connectivity tests
-    
+
     Returns:
         Dict containing connection status and configuration info
-        
+
     Raises:
         ToolError: If status check fails
     """
@@ -112,7 +112,12 @@ def get_client_status() -> dict[str, Any]:
 
         # Determine if this is likely a self-hosted instance
         # Check both FIRECRAWL_API_URL and FIRECRAWL_BASE_API (for compatibility)
-        api_url = os.getenv("FIRECRAWL_API_URL") or os.getenv("FIRECRAWL_BASE_API", "https://api.firecrawl.dev")
+        api_url = os.getenv("FIRECRAWL_API_URL") or os.getenv(
+            "FIRECRAWL_BASE_API", "https://api.firecrawl.dev"
+        )
+        # Handle potential None case even though we have a fallback
+        if api_url is None:
+            api_url = "https://api.firecrawl.dev"
         is_likely_self_hosted = not api_url.startswith("https://api.firecrawl.dev")
 
         # Initialize result values
@@ -123,7 +128,7 @@ def get_client_status() -> dict[str, Any]:
             # For self-hosted instances, try alternative health checks
             try:
                 # Approach 1: Try concurrency check (lighter than credit usage)
-                concurrency = client.get_concurrency()
+                client.get_concurrency()
                 connection_test = "passed"
                 logger.debug("Self-hosted health check passed via concurrency endpoint")
             except Exception as concurrency_error:
@@ -135,7 +140,9 @@ def get_client_status() -> dict[str, Any]:
                     client.scrape("invalid-url")
                 except Exception as scrape_error:
                     error_str = str(scrape_error).lower()
-                    if any(term in error_str for term in ["invalid url", "validation", "bad request"]):
+                    if any(
+                        term in error_str for term in ["invalid url", "validation", "bad request"]
+                    ):
                         connection_test = "passed"
                         logger.debug("Self-hosted health check passed via validation test")
                     else:
@@ -158,7 +165,7 @@ def get_client_status() -> dict[str, Any]:
             "api_key_configured": bool(os.getenv("FIRECRAWL_API_KEY")),
             "is_likely_self_hosted": is_likely_self_hosted,
             "remaining_credits": remaining_credits,
-            "connection_test": connection_test
+            "connection_test": connection_test,
         }
 
     except Exception as e:
@@ -167,10 +174,10 @@ def get_client_status() -> dict[str, Any]:
 
 
 # Backward compatibility functions - these will be deprecated
-def get_client():
+def get_client() -> FirecrawlClient:
     """
     DEPRECATED: Get Firecrawl client using old pattern.
-    
+
     This function exists for backward compatibility but should be replaced
     with get_firecrawl_client() in new code.
     """
@@ -178,10 +185,10 @@ def get_client():
     return get_firecrawl_client()
 
 
-def initialize_client(config=None):
+def initialize_client(config: dict[str, Any] | None = None) -> FirecrawlClient:  # noqa: ARG001
     """
     DEPRECATED: Initialize client with config.
-    
+
     This function exists for backward compatibility but should be replaced
     with direct calls to get_firecrawl_client() in new code.
     """
@@ -189,10 +196,10 @@ def initialize_client(config=None):
     return get_firecrawl_client()
 
 
-def reset_client():
+def reset_client() -> None:
     """
     DEPRECATED: Reset global client.
-    
+
     No-op function for backward compatibility. The new stateless approach
     doesn't require client reset.
     """

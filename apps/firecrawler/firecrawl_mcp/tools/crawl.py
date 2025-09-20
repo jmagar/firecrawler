@@ -10,6 +10,7 @@ progress reporting, and proper error handling for long-running operations.
 """
 
 import logging
+import re
 from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
@@ -40,13 +41,13 @@ def _validate_crawl_parameters(
 ) -> None:
     """
     Validate crawl parameters for common issues.
-    
+
     Args:
         url: The URL to validate
         exclude_paths: URL patterns to exclude
-        include_paths: URL patterns to include  
+        include_paths: URL patterns to include
         max_concurrency: Maximum concurrent requests
-        
+
     Raises:
         ToolError: If validation fails
     """
@@ -56,7 +57,6 @@ def _validate_crawl_parameters(
             raise ToolError("URL must start with http:// or https://")
 
         # Validate regex patterns
-        import re
         for field_name, patterns in [
             ("exclude_paths", exclude_paths),
             ("include_paths", include_paths)
@@ -66,7 +66,7 @@ def _validate_crawl_parameters(
                     try:
                         re.compile(pattern)
                     except re.error as e:
-                        raise ToolError(f"Invalid regex pattern in {field_name}[{i}]: {pattern} - {e}")
+                        raise ToolError(f"Invalid regex pattern in {field_name}[{i}]: {pattern} - {e}") from e
 
         # Validate concurrency limits
         if max_concurrency and max_concurrency > 50:
@@ -77,7 +77,7 @@ def _validate_crawl_parameters(
     except ToolError:
         raise
     except Exception as e:
-        raise ToolError(f"Parameter validation failed: {e}")
+        raise ToolError(f"Parameter validation failed: {e}") from e
 
 
 def _convert_to_crawl_request(
@@ -101,7 +101,7 @@ def _convert_to_crawl_request(
 ) -> CrawlRequest:
     """
     Convert MCP parameters to Firecrawl CrawlRequest.
-    
+
     Returns:
         CrawlRequest: The Firecrawl SDK request object
     """
@@ -131,7 +131,7 @@ def _convert_to_crawl_request(
             integration=integration
         )
     except Exception as e:
-        raise ToolError(f"Failed to convert parameters to CrawlRequest: {e}")
+        raise ToolError(f"Failed to convert parameters to CrawlRequest: {e}") from e
 
 
 async def _handle_crawl_start(
@@ -156,15 +156,15 @@ async def _handle_crawl_start(
 ) -> CrawlResponse:
     """
     Handle crawl initiation mode.
-    
+
     Args:
         ctx: MCP context for logging
         url: The URL to crawl
         [other parameters as per original crawl function]
-        
+
     Returns:
         CrawlResponse: Information about the started crawl job
-        
+
     Raises:
         ToolError: If the crawl cannot be started
     """
@@ -208,14 +208,10 @@ async def _handle_crawl_start(
         return crawl_response
 
     except FirecrawlError as e:
-        error_context = {
-            "tool": "crawl",
-            "url": url,
-            "limit": limit
-        }
+        error_context = f"tool=crawl, url={url}, limit={limit}"
         mcp_error = handle_firecrawl_error(e, error_context)
         await ctx.error(f"Firecrawl API error during crawl: {mcp_error}")
-        raise ToolError(str(mcp_error))
+        raise ToolError(str(mcp_error)) from e
 
     except ToolError:
         raise
@@ -229,18 +225,18 @@ async def _handle_crawl_start(
 async def _handle_crawl_status(
     ctx: Context,
     job_id: str,
-    auto_paginate: bool = False,
-    max_pages: int | None = None,
-    max_results: int | None = None,
-    max_wait_time: int | None = None
+    auto_paginate: bool = False,  # noqa: ARG001
+    max_pages: int | None = None,  # noqa: ARG001
+    max_results: int | None = None,  # noqa: ARG001
+    max_wait_time: int | None = None  # noqa: ARG001
 ) -> dict[str, Any]:
     """
     Handle crawl status checking mode - STATUS ONLY, NO DATA.
-    
+
     This function returns only crawl progress information and brief summaries.
     It does NOT return actual scraped content. Use vector search or other tools
     to retrieve actual crawled data.
-    
+
     Args:
         ctx: MCP context for logging
         job_id: The crawl job ID to check status for
@@ -248,10 +244,10 @@ async def _handle_crawl_status(
         max_pages: Maximum number of pages to fetch (ignored for status)
         max_results: Maximum number of results to return (ignored for status)
         max_wait_time: Maximum time to wait for pagination (ignored for status)
-        
+
     Returns:
         dict[str, Any]: Status information with concise summary, NO actual data
-        
+
     Raises:
         ToolError: If the status cannot be retrieved
     """
@@ -331,13 +327,10 @@ async def _handle_crawl_status(
         return status_response
 
     except FirecrawlError as e:
-        error_context = {
-            "tool": "crawl_status",
-            "job_id": job_id
-        }
+        error_context = f"tool=crawl_status, job_id={job_id}"
         mcp_error = handle_firecrawl_error(e, error_context)
         await ctx.error(f"Firecrawl API error during crawl status check: {mcp_error}")
-        raise ToolError(str(mcp_error))
+        raise ToolError(str(mcp_error)) from e
 
     except ToolError:
         raise
@@ -477,11 +470,11 @@ def register_crawl_tools(mcp: FastMCP) -> None:
     ) -> CrawlResponse | dict[str, Any]:
         """
         Start website crawling or check crawl job status with automatic mode detection.
-        
+
         This unified tool automatically detects the operation mode based on parameters:
         - If job_id provided: Status checking mode for existing crawl jobs (STATUS ONLY, NO DATA)
         - If url provided: Crawl initiation mode to start new crawl job
-        
+
         Args:
             ctx: MCP context for logging and progress reporting
             url: Website URL to crawl (for starting new crawl job)
@@ -506,11 +499,11 @@ def register_crawl_tools(mcp: FastMCP) -> None:
             max_pages: Maximum result pages to fetch
             max_results: Maximum results to return
             max_wait_time: Maximum wait time for pagination
-            
+
         Returns:
-            Union[CrawlResponse, dict[str, Any]]: CrawlResponse for crawl initiation, 
+            Union[CrawlResponse, dict[str, Any]]: CrawlResponse for crawl initiation,
                 status summary dict for status checking (NO actual data)
-            
+
         Raises:
             ToolError: If operation fails or configuration is invalid
         """

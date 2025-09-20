@@ -58,8 +58,8 @@ class RateLimitConfig:
         return cls(
             # Use config values if available, otherwise use defaults
             scrape_per_minute=getattr(config, 'rate_limit_scrape_per_minute', 100),
-            global_per_minute=config.rate_limit_requests_per_minute,
-            global_per_hour=config.rate_limit_requests_per_hour,
+            global_per_minute=getattr(config, 'rate_limit_requests_per_minute', 500),
+            global_per_hour=getattr(config, 'rate_limit_requests_per_hour', 5000),
             burst_multiplier=getattr(config, 'rate_limit_burst_multiplier', 1.5)
         )
 
@@ -76,10 +76,10 @@ class TokenBucket:
     def consume(self, tokens: int = 1) -> bool:
         """
         Try to consume tokens from the bucket.
-        
+
         Args:
             tokens: Number of tokens to consume
-            
+
         Returns:
             bool: True if tokens were consumed, False if not available
         """
@@ -101,10 +101,10 @@ class TokenBucket:
     def time_until_tokens(self, tokens: int = 1) -> float:
         """
         Calculate time until specified tokens are available.
-        
+
         Args:
             tokens: Number of tokens needed
-            
+
         Returns:
             float: Time in seconds until tokens are available
         """
@@ -126,7 +126,7 @@ class SlidingWindow:
     def add_request(self) -> bool:
         """
         Add a request to the sliding window.
-        
+
         Returns:
             bool: True if request was allowed, False if rate limit exceeded
         """
@@ -147,7 +147,7 @@ class SlidingWindow:
     def time_until_available(self) -> float:
         """
         Calculate time until a slot becomes available.
-        
+
         Returns:
             float: Time in seconds until a request can be made
         """
@@ -156,7 +156,7 @@ class SlidingWindow:
 
         # Time until oldest request expires
         oldest_timestamp = self.timestamps[0]
-        return (oldest_timestamp + self.window_seconds) - time.time()
+        return float((oldest_timestamp + self.window_seconds) - time.time())
 
 
 class ClientIdentifier:
@@ -166,10 +166,10 @@ class ClientIdentifier:
     def get_client_id(context: MiddlewareContext) -> str:
         """
         Extract client identifier from context.
-        
+
         Args:
             context: Middleware context
-            
+
         Returns:
             str: Client identifier
         """
@@ -207,36 +207,38 @@ class ClientIdentifier:
     def get_operation_type(context: MiddlewareContext) -> str:
         """
         Extract operation type from context.
-        
+
         Args:
             context: Middleware context
-            
+
         Returns:
             str: Operation type for rate limiting
         """
-        method = context.method.lower()
+        method = (context.method or "").lower()
 
         # Map MCP methods to Firecrawl operation types
-        if 'tool' in method:
-            # Try to extract tool name from message
-            if hasattr(context, 'message') and hasattr(context.message, 'name'):
-                tool_name = context.message.name.lower()
+        if 'tool' in method and hasattr(context, 'message') and hasattr(context.message, 'name'):
+            tool_name = context.message.name.lower()
 
-                # Map tool names to operation types
-                if 'scrape' in tool_name:
-                    if 'batch' in tool_name:
-                        return 'batch'
-                    return 'scrape'
-                elif 'crawl' in tool_name:
-                    return 'crawl'
-                elif 'search' in tool_name or 'firesearch' in tool_name:
-                    return 'search'
-                elif 'extract' in tool_name:
-                    return 'extract'
-                elif 'map' in tool_name:
-                    return 'map'
-                elif 'vector' in tool_name or 'firerag' in tool_name:
-                    return 'vector_search'
+            # Define operation mappings to reduce return statements
+            operation_mappings = [
+                (['scrape'], 'scrape'),
+                (['batch'], 'batch'),
+                (['crawl'], 'crawl'),
+                (['search', 'firesearch'], 'search'),
+                (['extract'], 'extract'),
+                (['map'], 'map'),
+                (['vector', 'firerag'], 'vector_search'),
+            ]
+
+            # Check for batch first (most specific)
+            if 'batch' in tool_name:
+                return 'batch'
+
+            # Check other mappings
+            for keywords, operation_type in operation_mappings:
+                if any(keyword in tool_name for keyword in keywords):
+                    return operation_type
 
         # Default mapping
         return 'general'
@@ -245,7 +247,7 @@ class ClientIdentifier:
 class RateLimitingMiddleware(Middleware):
     """
     Token bucket rate limiting middleware.
-    
+
     Implements rate limiting using token bucket algorithm with configurable
     rates per operation type, following Firecrawl API patterns.
     """
@@ -260,7 +262,7 @@ class RateLimitingMiddleware(Middleware):
     ):
         """
         Initialize rate limiting middleware.
-        
+
         Args:
             config: Rate limiting configuration
             client_identifier: Function to identify clients
@@ -365,7 +367,7 @@ class RateLimitingMiddleware(Middleware):
 
         return self._client_buckets[client_id][bucket_key]
 
-    async def on_request(self, context: MiddlewareContext, call_next):
+    async def on_request(self, context: MiddlewareContext, call_next: Callable) -> Any:
         """Apply rate limiting to requests."""
         if not self.config:
             return await call_next(context)
@@ -406,10 +408,10 @@ class RateLimitingMiddleware(Middleware):
     def get_rate_limit_status(self, client_id: str | None = None) -> dict[str, Any]:
         """
         Get current rate limit status.
-        
+
         Args:
             client_id: Specific client ID to check, or None for global status
-            
+
         Returns:
             Dict containing rate limit status information
         """
@@ -431,7 +433,7 @@ class RateLimitingMiddleware(Middleware):
             }
 
             if client_id and client_id in self._client_buckets:
-                client_status = {}
+                client_status: dict[str, dict[str, dict[str, int]]] = {}
                 for bucket_key, bucket in self._client_buckets[client_id].items():
                     operation, time_window = bucket_key.rsplit('_', 1)
 
@@ -459,7 +461,7 @@ class RateLimitingMiddleware(Middleware):
 class SlidingWindowRateLimitingMiddleware(Middleware):
     """
     Sliding window rate limiting middleware.
-    
+
     Implements precise time-based rate limiting using sliding windows,
     providing more accurate rate limiting than token buckets but with
     higher memory usage.
@@ -475,7 +477,7 @@ class SlidingWindowRateLimitingMiddleware(Middleware):
     ):
         """
         Initialize sliding window rate limiting middleware.
-        
+
         Args:
             max_requests: Maximum requests per window
             window_minutes: Window size in minutes
@@ -510,7 +512,7 @@ class SlidingWindowRateLimitingMiddleware(Middleware):
 
         return self._client_windows[client_id][window_key]
 
-    async def on_request(self, context: MiddlewareContext, call_next):
+    async def on_request(self, context: MiddlewareContext, call_next: Callable) -> Any:
         """Apply sliding window rate limiting."""
         client_id = self.client_identifier(context)
         operation = self.operation_identifier(context)
@@ -523,10 +525,3 @@ class SlidingWindowRateLimitingMiddleware(Middleware):
                 raise ToolError(f"Rate limit exceeded for {operation} operations. Retry in {wait_time:.1f}s")
 
         return await call_next(context)
-
-
-# Factory function removed - use direct instantiation with FastMCP
-# Example:
-# rate_config = RateLimitConfig(scrape_per_minute=100, crawl_per_minute=15)
-# mcp.add_middleware(RateLimitingMiddleware(config=rate_config))
-# mcp.add_middleware(SlidingWindowRateLimitingMiddleware(max_requests=100))

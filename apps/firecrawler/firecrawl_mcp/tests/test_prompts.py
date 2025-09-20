@@ -7,6 +7,8 @@ with FastMCP prompt system.
 """
 
 
+from typing import Any
+
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
@@ -27,7 +29,7 @@ from firecrawl_mcp.prompts.prompts import (
 class TestExtractionPromptArgs:
     """Test extraction prompt argument validation and usage."""
 
-    def test_valid_extraction_args(self):
+    def test_valid_extraction_args(self) -> None:
         """Test creation of valid extraction prompt arguments."""
         args = ExtractionPromptArgs(
             content_type="product page",
@@ -45,7 +47,7 @@ class TestExtractionPromptArgs:
         assert args.strict_schema is True
         assert args.include_confidence is True
 
-    def test_extraction_args_defaults(self):
+    def test_extraction_args_defaults(self) -> None:
         """Test extraction prompt arguments with default values."""
         args = ExtractionPromptArgs(
             content_type="blog post",
@@ -59,20 +61,21 @@ class TestExtractionPromptArgs:
         assert args.strict_schema is True
         assert args.include_confidence is False
 
-    def test_invalid_output_format(self):
+    def test_invalid_output_format(self) -> None:
         """Test validation of invalid output format."""
         with pytest.raises(ValueError):
+            # Use type: ignore to bypass mypy check for this intentional test
             ExtractionPromptArgs(
                 content_type="webpage",
                 extraction_fields=["title"],
-                output_format="invalid_format"
+                output_format="invalid_format"  # type: ignore
             )
 
 
 class TestSynthesisPromptArgs:
     """Test synthesis prompt argument validation and usage."""
 
-    def test_valid_synthesis_args(self):
+    def test_valid_synthesis_args(self) -> None:
         """Test creation of valid synthesis prompt arguments."""
         args = SynthesisPromptArgs(
             query="How to implement vector search?",
@@ -90,7 +93,7 @@ class TestSynthesisPromptArgs:
         assert args.include_sources is True
         assert args.handle_conflicts is True
 
-    def test_synthesis_args_defaults(self):
+    def test_synthesis_args_defaults(self) -> None:
         """Test synthesis prompt arguments with default values."""
         args = SynthesisPromptArgs(
             query="test query",
@@ -104,7 +107,7 @@ class TestSynthesisPromptArgs:
         assert args.include_sources is True
         assert args.handle_conflicts is True
 
-    def test_invalid_context_length(self):
+    def test_invalid_context_length(self) -> None:
         """Test validation of invalid context length."""
         with pytest.raises(ValueError):
             SynthesisPromptArgs(
@@ -124,7 +127,7 @@ class TestSynthesisPromptArgs:
 class TestContentAnalysisPromptArgs:
     """Test content analysis prompt argument validation and usage."""
 
-    def test_valid_analysis_args(self):
+    def test_valid_analysis_args(self) -> None:
         """Test creation of valid content analysis prompt arguments."""
         args = ContentAnalysisPromptArgs(
             content_type="documentation",
@@ -138,7 +141,7 @@ class TestContentAnalysisPromptArgs:
         assert args.output_structure == "detailed"
         assert args.domain_context == "technology documentation"
 
-    def test_analysis_args_defaults(self):
+    def test_analysis_args_defaults(self) -> None:
         """Test content analysis prompt arguments with default values."""
         args = ContentAnalysisPromptArgs(
             content_type="webpage",
@@ -154,7 +157,7 @@ class TestContentAnalysisPromptArgs:
 class TestRetryPromptArgs:
     """Test retry prompt argument validation and usage."""
 
-    def test_valid_retry_args(self):
+    def test_valid_retry_args(self) -> None:
         """Test creation of valid retry prompt arguments."""
         args = RetryPromptArgs(
             original_operation="scrape",
@@ -170,7 +173,7 @@ class TestRetryPromptArgs:
         assert args.attempted_parameters == {"url": "https://example.com", "timeout": 30}
         assert args.user_intent == "Extract product information from e-commerce site"
 
-    def test_retry_args_minimal(self):
+    def test_retry_args_minimal(self) -> None:
         """Test retry prompt arguments with minimal required fields."""
         args = RetryPromptArgs(
             original_operation="extract",
@@ -188,7 +191,7 @@ class TestRetryPromptArgs:
 class TestPromptValidation:
     """Test prompt argument validation functions."""
 
-    def test_validate_extraction_args_success(self):
+    def test_validate_extraction_args_success(self) -> None:
         """Test successful validation of extraction arguments."""
         args = ExtractionPromptArgs(
             content_type="webpage",
@@ -199,7 +202,7 @@ class TestPromptValidation:
         # Should not raise any exception
         validate_extraction_args(args)
 
-    def test_validate_extraction_args_empty_fields(self):
+    def test_validate_extraction_args_empty_fields(self) -> None:
         """Test validation failure for empty extraction fields."""
         args = ExtractionPromptArgs(
             content_type="webpage",
@@ -209,7 +212,7 @@ class TestPromptValidation:
         with pytest.raises(ToolError, match="Extraction fields cannot be empty"):
             validate_extraction_args(args)
 
-    def test_validate_extraction_args_too_many_fields(self):
+    def test_validate_extraction_args_too_many_fields(self) -> None:
         """Test validation failure for too many extraction fields."""
         args = ExtractionPromptArgs(
             content_type="webpage",
@@ -219,7 +222,7 @@ class TestPromptValidation:
         with pytest.raises(ToolError, match="Too many extraction fields"):
             validate_extraction_args(args)
 
-    def test_validate_synthesis_args_success(self):
+    def test_validate_synthesis_args_success(self) -> None:
         """Test successful validation of synthesis arguments."""
         args = SynthesisPromptArgs(
             query="Valid query",
@@ -229,7 +232,7 @@ class TestPromptValidation:
         # Should not raise any exception
         validate_synthesis_args(args)
 
-    def test_validate_synthesis_args_empty_query(self):
+    def test_validate_synthesis_args_empty_query(self) -> None:
         """Test validation failure for empty query."""
         args = SynthesisPromptArgs(
             query="   ",  # Empty/whitespace query
@@ -239,7 +242,7 @@ class TestPromptValidation:
         with pytest.raises(ToolError, match="Query cannot be empty"):
             validate_synthesis_args(args)
 
-    def test_validate_synthesis_args_invalid_result_count(self):
+    def test_validate_synthesis_args_invalid_result_count(self) -> None:
         """Test validation failure for invalid result count."""
         args = SynthesisPromptArgs(
             query="Valid query",
@@ -262,11 +265,11 @@ class TestPromptTemplateRegistration:
     """Test prompt template registration and integration with FastMCP."""
 
     @pytest.fixture
-    def test_server(self):
+    def test_server(self) -> FastMCP:
         """Create a test FastMCP server."""
         return FastMCP("TestPromptServer")
 
-    def test_register_prompt_templates(self, test_server):
+    def test_register_prompt_templates(self, test_server: FastMCP) -> None:
         """Test registration of all prompt templates."""
         registered_names = register_prompt_templates(test_server)
 
@@ -282,7 +285,7 @@ class TestPromptTemplateRegistration:
         assert set(registered_names) == set(expected_prompts)
         assert len(registered_names) == len(expected_prompts)
 
-    async def test_structured_extraction_prompt_generation(self, test_server):
+    async def test_structured_extraction_prompt_generation(self, test_server: FastMCP) -> None:
         """Test generation of structured extraction prompt."""
         register_prompt_templates(test_server)
 
@@ -306,7 +309,7 @@ class TestPromptTemplateRegistration:
             assert "description" in prompt["content"]
             assert "confidence score" in prompt["content"]
 
-    async def test_vector_synthesis_prompt_generation(self, test_server):
+    async def test_vector_synthesis_prompt_generation(self, test_server: FastMCP) -> None:
         """Test generation of vector synthesis prompt."""
         register_prompt_templates(test_server)
 
@@ -328,7 +331,7 @@ class TestPromptTemplateRegistration:
             assert "concise" in prompt["content"]
             assert "SOURCE CITATION" in prompt["content"]
 
-    async def test_content_analysis_prompt_generation(self, test_server):
+    async def test_content_analysis_prompt_generation(self, test_server: FastMCP) -> None:
         """Test generation of content analysis prompt."""
         register_prompt_templates(test_server)
 
@@ -351,7 +354,7 @@ class TestPromptTemplateRegistration:
             assert "key_topics" in prompt["content"]
             assert "AI/ML documentation" in prompt["content"]
 
-    async def test_error_recovery_prompt_generation(self, test_server):
+    async def test_error_recovery_prompt_generation(self, test_server: FastMCP) -> None:
         """Test generation of error recovery prompt."""
         register_prompt_templates(test_server)
 
@@ -375,7 +378,7 @@ class TestPromptTemplateRegistration:
             assert "Rate limit exceeded" in prompt["content"]
             assert "https://example.com" in prompt["content"]
 
-    async def test_query_expansion_prompt_generation(self, test_server):
+    async def test_query_expansion_prompt_generation(self, test_server: FastMCP) -> None:
         """Test generation of query expansion prompt."""
         register_prompt_templates(test_server)
 
@@ -398,7 +401,7 @@ class TestPromptTemplateRegistration:
             assert "exactly 3 query variants" in prompt["content"]
             assert "academic research" in prompt["content"]
 
-    async def test_content_classification_prompt_generation(self, test_server):
+    async def test_content_classification_prompt_generation(self, test_server: FastMCP) -> None:
         """Test generation of content classification prompt."""
         register_prompt_templates(test_server)
 
@@ -428,7 +431,7 @@ class TestPromptTemplateRegistration:
 class TestPromptUtilities:
     """Test prompt utility functions."""
 
-    def test_create_default_system_prompt_extraction(self):
+    def test_create_default_system_prompt_extraction(self) -> None:
         """Test creation of default system prompt for extraction."""
         prompt = create_default_system_prompt("extraction")
 
@@ -436,7 +439,7 @@ class TestPromptUtilities:
         assert "structured information" in prompt.lower()
         assert "web content" in prompt.lower()
 
-    def test_create_default_system_prompt_synthesis(self):
+    def test_create_default_system_prompt_synthesis(self) -> None:
         """Test creation of default system prompt for synthesis."""
         prompt = create_default_system_prompt("synthesis")
 
@@ -444,7 +447,7 @@ class TestPromptUtilities:
         assert "multiple sources" in prompt.lower()
         assert "comprehensive responses" in prompt.lower()
 
-    def test_create_default_system_prompt_analysis(self):
+    def test_create_default_system_prompt_analysis(self) -> None:
         """Test creation of default system prompt for analysis."""
         prompt = create_default_system_prompt("analysis")
 
@@ -452,14 +455,14 @@ class TestPromptUtilities:
         assert "systematically analyze" in prompt.lower()
         assert "web content" in prompt.lower()
 
-    def test_create_default_system_prompt_unknown(self):
+    def test_create_default_system_prompt_unknown(self) -> None:
         """Test creation of default system prompt for unknown operation."""
         prompt = create_default_system_prompt("unknown_operation")
 
         assert "helpful AI assistant" in prompt.lower()
         assert "accurate, relevant responses" in prompt.lower()
 
-    def test_build_context_string(self):
+    def test_build_context_string(self) -> None:
         """Test building context string from vector search results."""
         results = [
             {
@@ -486,9 +489,9 @@ class TestPromptUtilities:
         assert "0.870" in context
         assert "..." in context  # Content should be truncated
 
-    def test_build_context_string_missing_fields(self):
+    def test_build_context_string_missing_fields(self) -> None:
         """Test building context string with missing fields."""
-        results = [
+        results: list[dict[str, Any]] = [
             {
                 "content": "Content without title or URL",
                 "similarity": 0.8
@@ -507,7 +510,7 @@ class TestPromptUtilities:
         assert "0.800" in context
         assert "0.000" in context  # Default similarity for missing value
 
-    def test_build_context_string_empty_results(self):
+    def test_build_context_string_empty_results(self) -> None:
         """Test building context string with empty results."""
         context = build_context_string([])
 
@@ -518,49 +521,49 @@ class TestPromptParameterValidation:
     """Test parameter validation for different prompt types."""
 
     @pytest.fixture
-    def test_server(self):
+    def test_server(self) -> FastMCP:
         """Create a test FastMCP server."""
         return FastMCP("TestPromptValidationServer")
 
-    async def test_extraction_prompt_parameter_validation(self, test_server):
+    async def test_extraction_prompt_parameter_validation(self, test_server: FastMCP) -> None:
         """Test parameter validation for extraction prompt."""
         register_prompt_templates(test_server)
 
         async with Client(test_server) as client:
             # Test with invalid parameters
-            with pytest.raises(Exception):  # Should raise validation error
+            with pytest.raises(ValueError):  # Should raise validation error
                 await client.get_prompt("structured_extraction", {
                     "content_type": "webpage",
                     "extraction_fields": [],  # Empty fields
                     "output_format": "json"
                 })
 
-    async def test_synthesis_prompt_parameter_validation(self, test_server):
+    async def test_synthesis_prompt_parameter_validation(self, test_server: FastMCP) -> None:
         """Test parameter validation for synthesis prompt."""
         register_prompt_templates(test_server)
 
         async with Client(test_server) as client:
             # Test with invalid parameters
-            with pytest.raises(Exception):  # Should raise validation error
+            with pytest.raises(ValueError):  # Should raise validation error
                 await client.get_prompt("vector_synthesis", {
                     "query": "",  # Empty query
                     "result_count": 5
                 })
 
-    async def test_prompt_with_missing_required_parameters(self, test_server):
+    async def test_prompt_with_missing_required_parameters(self, test_server: FastMCP) -> None:
         """Test prompt generation with missing required parameters."""
         register_prompt_templates(test_server)
 
         async with Client(test_server) as client:
             # Test extraction prompt with missing required fields
-            with pytest.raises(Exception):  # Should raise validation error
+            with pytest.raises((KeyError, ValueError)):  # Should raise validation error
                 await client.get_prompt("structured_extraction", {
                     "content_type": "webpage"
                     # Missing extraction_fields
                 })
 
             # Test synthesis prompt with missing required fields
-            with pytest.raises(Exception):  # Should raise validation error
+            with pytest.raises((KeyError, ValueError)):  # Should raise validation error
                 await client.get_prompt("vector_synthesis", {
                     "result_count": 5
                     # Missing query
@@ -571,11 +574,11 @@ class TestPromptContentValidation:
     """Test validation of generated prompt content."""
 
     @pytest.fixture
-    def test_server(self):
+    def test_server(self) -> FastMCP:
         """Create a test FastMCP server."""
         return FastMCP("TestPromptContentServer")
 
-    async def test_extraction_prompt_contains_required_elements(self, test_server):
+    async def test_extraction_prompt_contains_required_elements(self, test_server: FastMCP) -> None:
         """Test that extraction prompt contains all required elements."""
         register_prompt_templates(test_server)
 
@@ -601,7 +604,7 @@ class TestPromptContentValidation:
             assert "Product schema" in content
             assert "confidence score" in content
 
-    async def test_synthesis_prompt_handles_different_styles(self, test_server):
+    async def test_synthesis_prompt_handles_different_styles(self, test_server: FastMCP) -> None:
         """Test that synthesis prompt adapts to different synthesis styles."""
         register_prompt_templates(test_server)
 
@@ -633,7 +636,7 @@ class TestPromptContentValidation:
             prompt = await client.get_prompt("vector_synthesis", args.model_dump())
             assert "bullet points" in prompt["content"]
 
-    async def test_analysis_prompt_includes_domain_context(self, test_server):
+    async def test_analysis_prompt_includes_domain_context(self, test_server: FastMCP) -> None:
         """Test that analysis prompt includes domain context when provided."""
         register_prompt_templates(test_server)
 
@@ -660,7 +663,7 @@ class TestPromptContentValidation:
 
             assert "DOMAIN CONTEXT:" not in content
 
-    async def test_recovery_prompt_includes_all_context(self, test_server):
+    async def test_recovery_prompt_includes_all_context(self, test_server: FastMCP) -> None:
         """Test that recovery prompt includes all provided context."""
         register_prompt_templates(test_server)
 
@@ -688,13 +691,13 @@ class TestPromptIntegration:
     """Test integration of prompts with MCP server components."""
 
     @pytest.fixture
-    def test_server(self):
+    def test_server(self) -> FastMCP:
         """Create a test FastMCP server with prompts registered."""
         server = FastMCP("TestPromptIntegrationServer")
         register_prompt_templates(server)
         return server
 
-    async def test_prompt_registration_with_server(self, test_server):
+    async def test_prompt_registration_with_server(self, test_server: FastMCP) -> None:
         """Test that prompts are properly registered with server."""
         async with Client(test_server) as client:
             prompts = await client.list_prompts()
@@ -713,7 +716,7 @@ class TestPromptIntegration:
             for expected_prompt in expected_prompts:
                 assert expected_prompt in prompt_names
 
-    async def test_prompt_metadata_correctness(self, test_server):
+    async def test_prompt_metadata_correctness(self, test_server: FastMCP) -> None:
         """Test that prompt metadata is correctly set."""
         async with Client(test_server) as client:
             prompts = await client.list_prompts()
@@ -734,17 +737,17 @@ class TestPromptIntegration:
             assert "rag" in synthesis_prompt.get("tags", [])
             assert "synthesizing vector search results" in synthesis_prompt["description"]
 
-    async def test_prompt_error_handling(self, test_server):
+    async def test_prompt_error_handling(self, test_server: FastMCP) -> None:
         """Test error handling in prompt generation."""
         async with Client(test_server) as client:
             # Test with completely invalid parameters
-            with pytest.raises(Exception):
+            with pytest.raises((KeyError, ValueError, TypeError)):
                 await client.get_prompt("structured_extraction", {
                     "invalid_param": "invalid_value"
                 })
 
             # Test with partially invalid parameters
-            with pytest.raises(Exception):
+            with pytest.raises((ValueError, TypeError)):
                 await client.get_prompt("vector_synthesis", {
                     "query": "valid query",
                     "result_count": "invalid_type"  # Should be int

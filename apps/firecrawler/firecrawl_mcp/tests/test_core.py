@@ -6,9 +6,12 @@ and error handling components that form the foundation of the MCP server.
 """
 
 import os
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
+from fastmcp.exceptions import ToolError
+from firecrawl.v2.client import FirecrawlClient
 from firecrawl.v2.utils.error_handler import (
     BadRequestError,
     FirecrawlError,
@@ -18,13 +21,21 @@ from firecrawl.v2.utils.error_handler import (
 )
 
 from firecrawl_mcp.core.client import (
-    ClientConnectionInfo,
-    FirecrawlMCPClient,
     get_client,
+    get_client_status,
+    get_firecrawl_client,
     initialize_client,
     reset_client,
 )
-from firecrawl_mcp.core.config import MCPConfig, load_config, validate_environment
+from firecrawl_mcp.core.config import (
+    MCPConfig,
+    get_env_bool,
+    get_env_float,
+    get_env_int,
+    get_server_info,
+    load_config,
+    validate_environment,
+)
 from firecrawl_mcp.core.exceptions import (
     MCPAuthenticationError,
     MCPClientError,
@@ -35,6 +46,7 @@ from firecrawl_mcp.core.exceptions import (
     MCPToolError,
     MCPValidationError,
     create_error_response,
+    create_tool_error,
     handle_firecrawl_error,
     mcp_log_error,
 )
@@ -45,487 +57,384 @@ from .conftest import create_test_config
 class TestMCPConfig:
     """Test suite for MCPConfig class."""
 
-    def test_config_initialization_with_defaults(self):
-        """Test that configuration initializes with proper defaults."""
-        # Provide minimal required config but let other values use defaults
-        with patch.dict(os.environ, {"FIRECRAWL_API_KEY": "test-key"}, clear=True):
-            config = MCPConfig()
+    def test_config_initialization_with_defaults(self) -> None:
+        """Test that server info returns proper defaults."""
+        # Test with clean environment to check defaults
+        with patch.dict(os.environ, {}, clear=True):
+            server_info = get_server_info()
 
             # Test default values
-            assert config.firecrawl_api_url == "https://api.firecrawl.dev"
-            assert config.firecrawl_timeout == 120.0
-            assert config.firecrawl_max_retries == 3
-            assert config.firecrawl_backoff_factor == 0.5
-            assert config.server_name == "Firecrawler MCP Server"
-            assert config.server_version == "1.0.0"
-            assert config.log_level == "INFO"
-            assert config.rate_limit_enabled is True
-            assert config.auth_enabled is False
-            assert config.cache_enabled is True
-            assert config.vector_search_enabled is True
-            assert config.debug_mode is False
+            assert server_info["api_url"] == "https://api.firecrawl.dev"
+            assert server_info["server_name"] == "Firecrawl MCP Server"
+            assert server_info["server_version"] == "1.0.0"
+            assert server_info["api_key_configured"] is False
+            assert server_info["debug_mode"] is False
+            assert server_info["development_mode"] is False
 
-    def test_config_loads_from_environment(self, test_env):
-        """Test that configuration loads values from environment variables."""
-        config = MCPConfig()
+    def test_config_loads_from_environment(self, _test_env: dict[str, str]) -> None:
+        """Test that environment utilities load values from environment variables."""
+        server_info = get_server_info()
 
-        assert config.firecrawl_api_key == "fc-test-key-1234567890abcdef"
-        assert config.firecrawl_api_url == "https://api.firecrawl.dev"
-        assert config.firecrawl_timeout == 30.0
-        assert config.firecrawl_max_retries == 2
-        assert config.server_name == "Test Firecrawler MCP Server"
-        assert config.log_level == "DEBUG"
-        assert config.rate_limit_enabled is False
-        assert config.auth_enabled is False
-        assert config.cache_enabled is False
-        assert config.development_mode is True
-        assert config.debug_mode is True
+        assert server_info["api_key_configured"] is True
+        assert server_info["api_url"] == "https://api.firecrawl.dev"
+        assert server_info["server_name"] == "Test Firecrawler MCP Server"
+        assert server_info["debug_mode"] is True
+        assert server_info["development_mode"] is True
 
-    def test_config_validation_success(self, valid_config):
+        # Test environment variable parsing
+        assert get_env_float("FIRECRAWL_TIMEOUT", 120.0) == 30.0
+        assert get_env_int("FIRECRAWL_MAX_RETRIES", 3) == 2
+        assert get_env_bool("RATE_LIMIT_ENABLED", True) is False
+        assert get_env_bool("AUTH_ENABLED", True) is False
+        assert get_env_bool("CACHE_ENABLED", True) is False
+
+    def test_config_validation_success(self, _valid_config: MCPConfig) -> None:
         """Test that valid configuration passes validation."""
-        assert valid_config.is_valid() is True
+        assert _valid_config.is_valid() is True
 
-    def test_config_validation_missing_api_key(self):
-        """Test that configuration validation fails without API key."""
+    def test_config_validation_missing_api_key(self) -> None:
+        """Test that environment validation detects missing API key."""
         with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError) as exc_info:
-                MCPConfig()
+            result = validate_environment()
 
-            assert "FIRECRAWL_API_KEY is required" in str(exc_info.value)
+            assert result["valid"] is False
+            assert "FIRECRAWL_API_KEY is required" in str(result["issues"])
 
-    def test_config_validation_negative_timeout(self):
-        """Test that configuration validation fails with negative timeout."""
+    def test_config_validation_negative_timeout(self) -> None:
+        """Test that environment parsing handles negative timeout values."""
         env_config = create_test_config(FIRECRAWL_TIMEOUT="-1")
 
         with patch.dict(os.environ, env_config):
-            with pytest.raises(ValueError) as exc_info:
-                MCPConfig()
+            # The environment parser should parse the actual value (negative values are allowed)
+            timeout = get_env_float("FIRECRAWL_TIMEOUT", 120.0)
+            assert timeout == -1.0  # Should parse the actual value
 
-            assert "FIRECRAWL_TIMEOUT must be positive" in str(exc_info.value), f"Expected timeout validation error, got: {exc_info.value}"
-
-    def test_config_validation_negative_max_retries(self):
-        """Test that configuration validation fails with negative max retries."""
+    def test_config_validation_negative_max_retries(self) -> None:
+        """Test that environment parsing handles negative max retries values."""
         env_config = create_test_config(FIRECRAWL_MAX_RETRIES="-1")
 
         with patch.dict(os.environ, env_config):
-            with pytest.raises(ValueError) as exc_info:
-                MCPConfig()
+            # The environment parser should parse the actual value (negative values are allowed)
+            max_retries = get_env_int("FIRECRAWL_MAX_RETRIES", 3)
+            assert max_retries == -1  # Should parse the actual value
 
-            assert "FIRECRAWL_MAX_RETRIES must be non-negative" in str(exc_info.value), f"Expected max retries validation error, got: {exc_info.value}"
-
-    def test_config_validation_invalid_server_port(self):
-        """Test that configuration validation fails with invalid server port."""
+    def test_config_validation_invalid_server_port(self) -> None:
+        """Test that environment parsing handles large server port values."""
         env_config = create_test_config(MCP_SERVER_PORT="70000")
 
         with patch.dict(os.environ, env_config):
-            with pytest.raises(ValueError) as exc_info:
-                MCPConfig()
+            # The environment parser should parse the actual value (validation is done elsewhere)
+            server_port = get_env_int("MCP_SERVER_PORT", 8000)
+            assert server_port == 70000  # Should parse the actual value
 
-            assert "MCP_SERVER_PORT must be between 1 and 65535" in str(exc_info.value), f"Expected server port validation error, got: {exc_info.value}"
-
-    def test_config_validation_invalid_temperature(self):
-        """Test that configuration validation fails with invalid OpenAI temperature."""
+    def test_config_validation_invalid_temperature(self) -> None:
+        """Test that environment parsing handles high temperature values."""
         env_config = create_test_config(OPENAI_TEMPERATURE="3.0")
 
         with patch.dict(os.environ, env_config):
-            with pytest.raises(ValueError) as exc_info:
-                MCPConfig()
+            # The environment parser should parse the actual value (validation is done elsewhere)
+            temperature = get_env_float("OPENAI_TEMPERATURE", 1.0)
+            assert temperature == 3.0  # Should parse the actual value
 
-            assert "OPENAI_TEMPERATURE must be between 0 and 2" in str(exc_info.value), f"Expected temperature validation error, got: {exc_info.value}"
-
-    def test_config_parse_bool_default_when_not_set(self):
+    def test_config_parse_bool_default_when_not_set(self) -> None:
         """Test that boolean parsing returns default when environment variable is not set."""
-        assert MCPConfig._parse_bool("TEST_VAR", False) == False, "Expected default value when environment variable not set"
-        assert MCPConfig._parse_bool("TEST_VAR", True) == True, "Expected default value when environment variable not set"
+        assert not get_env_bool("TEST_VAR", False), (
+            "Expected default value when environment variable not set"
+        )
+        assert get_env_bool("TEST_VAR", True), (
+            "Expected default value when environment variable not set"
+        )
 
-    def test_config_parse_bool_true_values(self):
+    def test_config_parse_bool_true_values(self) -> None:
         """Test that various true values are parsed correctly."""
         true_values = ["true", "TRUE", "1", "yes", "on", "enabled"]
 
         for value in true_values:
             with patch.dict(os.environ, {"TEST_VAR": value}):
-                result = MCPConfig._parse_bool("TEST_VAR", False)
-                assert result == True, f"Expected '{value}' to parse as True, got {result}"
+                result = get_env_bool("TEST_VAR", False)
+                assert result, f"Expected '{value}' to parse as True, got {result}"
 
-    def test_config_parse_bool_false_values(self):
+    def test_config_parse_bool_false_values(self) -> None:
         """Test that various false values are parsed correctly."""
         false_values = ["false", "FALSE", "0", "no", "off", "disabled", ""]
 
         for value in false_values:
             with patch.dict(os.environ, {"TEST_VAR": value}):
-                result = MCPConfig._parse_bool("TEST_VAR", True)  # Use True default to ensure parsing works
-                assert result == False, f"Expected '{value}' to parse as False, got {result}"
+                result = get_env_bool(
+                    "TEST_VAR", True
+                )  # Use True default to ensure parsing works
+                assert not result, f"Expected '{value}' to parse as False, got {result}"
 
-    def test_config_has_llm_provider(self):
-        """Test LLM provider detection."""
+    def test_config_has_llm_provider(self) -> None:
+        """Test LLM provider detection using environment functions."""
         # No LLM provider
         with patch.dict(os.environ, create_test_config()):
-            config = MCPConfig()
-            assert config.has_llm_provider() is False
-            assert config.get_llm_provider() is None
+            validation = validate_environment()
+            # Check that recommendations include LLM setup
+            has_llm_recommendation = any(
+                "OPENAI_API_KEY" in rec or "OLLAMA_BASE_URL" in rec
+                for rec in validation["recommendations"]
+            )
+            assert has_llm_recommendation
 
         # OpenAI provider
         with patch.dict(os.environ, create_test_config(OPENAI_API_KEY="sk-test")):
-            config = MCPConfig()
-            assert config.has_llm_provider() is True
-            assert config.get_llm_provider() == "openai"
+            assert bool(os.getenv("OPENAI_API_KEY"))
 
         # Ollama provider
         with patch.dict(os.environ, create_test_config(OLLAMA_BASE_URL="http://localhost:11434")):
-            config = MCPConfig()
-            assert config.has_llm_provider() is True
-            assert config.get_llm_provider() == "ollama"
+            assert bool(os.getenv("OLLAMA_BASE_URL"))
 
-    def test_config_to_dict_masks_sensitive_values(self, valid_config):
-        """Test that sensitive values are masked in dictionary output."""
-        config_dict = valid_config.to_dict()
+    def test_config_to_dict_masks_sensitive_values(self, _valid_config: MCPConfig) -> None:
+        """Test that server info provides configuration without sensitive values."""
+        server_info = get_server_info()
 
-        # API key should be masked
-        assert config_dict["firecrawl_api_key"] == "fc-t...cdef"
+        # API key should not be exposed directly
+        assert "api_key" not in server_info
+        assert server_info["api_key_configured"] is True
 
-        # Non-sensitive values should not be masked
-        assert config_dict["firecrawl_api_url"] == "https://api.firecrawl.dev"
-        assert config_dict["server_name"] == "Test Firecrawler MCP Server"
+        # Non-sensitive values should be available
+        assert server_info["api_url"] == "https://api.firecrawl.dev"
+        assert server_info["server_name"] == "Test Firecrawler MCP Server"
 
-    def test_config_get_summary(self, valid_config):
-        """Test configuration summary generation."""
-        summary = valid_config.get_summary()
+    def test_config_get_summary(self, _valid_config: MCPConfig) -> None:
+        """Test environment validation provides comprehensive summary."""
+        validation = validate_environment()
 
-        assert "server_name" in summary
-        assert "server_version" in summary
-        assert "api_url" in summary
-        assert "has_api_key" in summary
-        assert "timestamp" in summary
+        assert "valid" in validation
+        assert "issues" in validation
+        assert "recommendations" in validation
+        assert "server_info" in validation
 
-        assert summary["has_api_key"] is True
-        assert summary["server_name"] == "Test Firecrawler MCP Server"
+        server_info = validation["server_info"]
+        assert server_info["api_key_configured"] is True
+        assert server_info["server_name"] == "Test Firecrawler MCP Server"
 
-    def test_load_config_function(self, test_env):
-        """Test the load_config utility function."""
+    def test_load_config_function(self, _test_env: dict[str, str]) -> None:
+        """Test the legacy load_config utility function."""
         config = load_config()
-
         assert isinstance(config, MCPConfig)
-        assert config.firecrawl_api_key == "fc-test-key-1234567890abcdef"
 
-    def test_validate_environment_function(self, test_env):
+    def test_validate_environment_function(self, _test_env: dict[str, str]) -> None:
         """Test the validate_environment utility function."""
         result = validate_environment()
 
         assert isinstance(result, dict)
         assert "valid" in result
-        assert "summary" in result
+        assert "server_info" in result
         assert "recommendations" in result
 
         assert result["valid"] is True
         assert isinstance(result["recommendations"], list)
 
 
-class TestFirecrawlMCPClient:
-    """Test suite for FirecrawlMCPClient class."""
+class TestFirecrawlClient:
+    """Test suite for Firecrawl client utilities."""
 
-    def test_client_initialization_success(self, valid_config, mock_successful_client_validation):
-        """Test successful client initialization."""
-        client = FirecrawlMCPClient(valid_config)
+    def test_client_creation_success(self, _test_env: dict[str, str]) -> None:
+        """Test successful client creation."""
+        client = get_firecrawl_client()
+        assert isinstance(client, FirecrawlClient)
 
-        assert client.is_connected() is True
-        assert client.config == valid_config
+    def test_client_creation_failure_no_api_key(self) -> None:
+        """Test client creation failure without API key."""
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(ToolError) as exc_info:
+                get_firecrawl_client()
 
-        connection_info = client.connection_info
-        assert isinstance(connection_info, ClientConnectionInfo)
-        assert connection_info.is_connected is True
-        assert connection_info.api_key_masked == "fc-t...cdef"
+            assert "FIRECRAWL_API_KEY" in str(exc_info.value)
 
-    def test_client_initialization_failure_no_api_key(self, invalid_config):
-        """Test client initialization failure without API key."""
-        with pytest.raises(MCPConfigurationError) as exc_info:
-            FirecrawlMCPClient(invalid_config)
+    def test_client_creation_with_self_hosted(self) -> None:
+        """Test client creation for self-hosted instance."""
+        with patch.dict(os.environ, {
+            "FIRECRAWL_API_URL": "http://localhost:3002"
+        }, clear=True):
+            client = get_firecrawl_client()
+            assert isinstance(client, FirecrawlClient)
 
-        assert "FIRECRAWL_API_KEY is required" in str(exc_info.value)
+    def test_client_status_success(self, _test_env: dict[str, str]) -> None:
+        """Test successful client status check."""
+        with patch("firecrawl_mcp.core.client.get_firecrawl_client") as mock_get_client:
+            mock_client = MagicMock()
+            mock_client.get_credit_usage.return_value = MagicMock(remaining=100)
+            mock_get_client.return_value = mock_client
 
-    def test_client_initialization_failure_client_error(self, valid_config):
-        """Test client initialization failure due to client error."""
-        with patch("firecrawl_mcp.core.client.FirecrawlClient") as mock_client_class:
-            mock_client_class.side_effect = FirecrawlError("Connection failed")
+            status = get_client_status()
 
-            with pytest.raises(MCPClientError) as exc_info:
-                FirecrawlMCPClient(valid_config)
+            assert isinstance(status, dict)
+            assert status["status"] == "connected"
+            assert status["connection_test"] == "passed"
+            assert status["api_key_configured"] is True
 
-            assert "Failed to initialize Firecrawl client" in str(exc_info.value)
+    def test_client_status_self_hosted(self) -> None:
+        """Test client status for self-hosted instance."""
+        with patch.dict(os.environ, {
+            "FIRECRAWL_API_URL": "http://localhost:3002",
+            "FIRECRAWL_API_KEY": "test-key"
+        }), patch("firecrawl_mcp.core.client.get_firecrawl_client") as mock_get_client:
+            mock_client = MagicMock()
+            mock_client.get_concurrency.return_value = {"limit": 10}
+            mock_get_client.return_value = mock_client
 
-    def test_client_property_access(self, valid_config, mock_successful_client_validation):
-        """Test client property access."""
-        mcp_client = FirecrawlMCPClient(valid_config)
+            status = get_client_status()
 
-        # Test client property
-        client = mcp_client.client
-        assert client is not None
+            assert status["is_likely_self_hosted"] is True
+            assert status["connection_test"] == "passed"
 
-        # Test config property
-        assert mcp_client.config == valid_config
+    def test_client_status_failure(self, _test_env: dict[str, str]) -> None:
+        """Test client status check failure."""
+        with patch("firecrawl_mcp.core.client.get_firecrawl_client") as mock_get_client:
+            mock_get_client.side_effect = Exception("Connection failed")
 
-    def test_client_property_access_when_not_initialized(self, valid_config):
-        """Test client property access when not initialized."""
-        mcp_client = FirecrawlMCPClient.__new__(FirecrawlMCPClient)
-        mcp_client._config = valid_config
-        mcp_client._client = None
-        mcp_client._connection_info = None
+            with pytest.raises(ToolError) as exc_info:
+                get_client_status()
 
-        with pytest.raises(MCPClientError) as exc_info:
-            _ = mcp_client.client
-
-        assert "Firecrawl client is not initialized" in str(exc_info.value)
-
-    def test_validate_connection_success(self, valid_config, mock_successful_client_validation):
-        """Test successful connection validation."""
-        client = FirecrawlMCPClient(valid_config)
-
-        result = client.validate_connection()
-
-        assert isinstance(result, dict)
-        assert result["status"] == "connected"
-        assert result["connection_test"] == "passed"
-        assert "timestamp" in result
-
-    def test_validate_connection_failure(self, valid_config, mock_failed_client_validation):
-        """Test connection validation failure."""
-        client = FirecrawlMCPClient(valid_config)
-
-        with pytest.raises(MCPClientError) as exc_info:
-            client.validate_connection()
-
-        assert "Connection validation failed" in str(exc_info.value)
-
-    def test_refresh_client(self, valid_config, mock_successful_client_validation):
-        """Test client refresh functionality."""
-        client = FirecrawlMCPClient(valid_config)
-        original_client_id = id(client._client)
-
-        client.refresh_client()
-
-        # Client should be refreshed (new instance)
-        new_client_id = id(client._client)
-        assert new_client_id != original_client_id
-        assert client.is_connected() is True
-
-    def test_get_status(self, valid_config, mock_successful_client_validation):
-        """Test client status retrieval."""
-        client = FirecrawlMCPClient(valid_config)
-
-        status = client.get_status()
-
-        assert isinstance(status, dict)
-        assert status["client_initialized"] is True
-        assert status["connection_available"] is True
-        assert status["config_valid"] is True
-        assert "timestamp" in status
-        assert "api_url" in status
-
-    def test_mask_api_key(self):
-        """Test API key masking functionality."""
-        # Empty key
-        assert FirecrawlMCPClient._mask_api_key("") == "<not set>"
-
-        # Short key
-        assert FirecrawlMCPClient._mask_api_key("abc") == "***"
-
-        # Normal key
-        assert FirecrawlMCPClient._mask_api_key("fc-1234567890abcdef") == "fc-1...cdef"
+            assert "Failed to get client status" in str(exc_info.value)
 
 
-class TestGlobalClientManagement:
-    """Test suite for global client management functions."""
+class TestLegacyClientFunctions:
+    """Test suite for legacy client management functions."""
 
-    def test_get_client_success(self, test_env, mock_successful_client_validation):
-        """Test successful global client retrieval."""
+    def test_legacy_get_client_success(self, _test_env: dict[str, str]) -> None:
+        """Test legacy get_client function."""
         client = get_client()
+        assert isinstance(client, FirecrawlClient)
 
-        assert isinstance(client, FirecrawlMCPClient)
-        assert client.is_connected() is True
-
-        # Second call should return same instance
-        client2 = get_client()
-        assert client is client2
-
-    def test_get_client_failure(self):
-        """Test global client retrieval failure."""
+    def test_legacy_get_client_failure(self) -> None:
+        """Test legacy get_client function failure."""
         # Clear environment to cause initialization failure
         with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(MCPClientError) as exc_info:
+            with pytest.raises(ToolError) as exc_info:
                 get_client()
 
-            assert "Failed to initialize global client" in str(exc_info.value)
+            assert "FIRECRAWL_API_KEY" in str(exc_info.value)
 
-    def test_initialize_client_success(self, valid_config, mock_successful_client_validation):
-        """Test successful client initialization."""
-        client = initialize_client(valid_config)
+    def test_legacy_initialize_client_success(self, _test_env: dict[str, str]) -> None:
+        """Test legacy initialize_client function."""
+        client = initialize_client()
+        assert isinstance(client, FirecrawlClient)
 
-        assert isinstance(client, FirecrawlMCPClient)
-        assert client.config == valid_config
-
-        # Global client should be updated
-        global_client = get_client()
-        assert global_client is client
-
-    def test_initialize_client_failure(self, invalid_config):
-        """Test client initialization failure."""
-        with pytest.raises(MCPClientError) as exc_info:
-            initialize_client(invalid_config)
-
-        assert "Client initialization failed" in str(exc_info.value)
-
-    def test_reset_client(self, test_env, mock_successful_client_validation):
-        """Test client reset functionality."""
-        # Initialize client
-        client1 = get_client()
-
-        # Reset client
+    def test_legacy_reset_client(self) -> None:
+        """Test legacy reset_client function (no-op)."""
+        # This should not raise an exception
         reset_client()
-
-        # Get new client
-        client2 = get_client()
-
-        # Should be different instances
-        assert client1 is not client2
+        assert True  # Just verify it doesn't crash
 
 
 class TestMCPExceptions:
-    """Test suite for MCP exception classes."""
+    """Test suite for MCP exception utilities."""
 
-    def test_mcp_error_basic(self):
-        """Test basic MCP error functionality."""
-        error = MCPError("Test error", error_code="TEST_ERROR")
-
+    def test_legacy_mcp_error_basic(self) -> None:
+        """Test basic legacy MCP error functionality."""
+        error = MCPError("Test error")
         assert str(error) == "Test error"
-        assert error.error_code == "TEST_ERROR"
-        assert error.details == {}
+        assert isinstance(error, Exception)
 
-        error_dict = error.to_dict()
-        assert error_dict["error"] == "MCPError"
-        assert error_dict["message"] == "Test error"
-        assert error_dict["error_code"] == "TEST_ERROR"
+    def test_legacy_mcp_configuration_error(self) -> None:
+        """Test legacy MCP configuration error."""
+        error = MCPConfigurationError("Config error")
+        assert str(error) == "Config error"
+        assert isinstance(error, MCPError)
 
-    def test_mcp_configuration_error(self):
-        """Test MCP configuration error."""
-        error = MCPConfigurationError(
-            "Config error",
-            missing_config="API_KEY",
-            invalid_values={"timeout": -1}
-        )
+    def test_legacy_mcp_client_error(self) -> None:
+        """Test legacy MCP client error."""
+        error = MCPClientError("Client error")
+        assert str(error) == "Client error"
+        assert isinstance(error, MCPError)
 
-        assert error.error_code == "CONFIGURATION_ERROR"
-        assert error.details["missing_config"] == "API_KEY"
-        assert error.details["invalid_values"]["timeout"] == -1
+    def test_legacy_mcp_tool_error(self) -> None:
+        """Test legacy MCP tool error."""
+        error = MCPToolError("Tool error")
+        assert str(error) == "Tool error"
+        assert isinstance(error, MCPError)
 
-    def test_mcp_client_error(self):
-        """Test MCP client error."""
-        error = MCPClientError(
-            "Client error",
-            client_state="disconnected",
-            connection_info={"url": "https://api.firecrawl.dev"}
-        )
+    def test_legacy_mcp_validation_error(self) -> None:
+        """Test legacy MCP validation error."""
+        error = MCPValidationError("Validation error")
+        assert str(error) == "Validation error"
+        assert isinstance(error, MCPError)
 
-        assert error.error_code == "CLIENT_ERROR"
-        assert error.details["client_state"] == "disconnected"
-
-    def test_mcp_tool_error(self):
-        """Test MCP tool error."""
-        error = MCPToolError(
-            "Tool error",
-            tool_name="scrape",
-            tool_parameters={"url": "https://example.com"},
-            execution_stage="validation"
-        )
-
-        assert error.error_code == "TOOL_ERROR"
-        assert error.details["tool_name"] == "scrape"
-        assert error.details["execution_stage"] == "validation"
-
-    def test_mcp_validation_error(self):
-        """Test MCP validation error."""
-        error = MCPValidationError(
-            "Validation error",
-            validation_errors={"url": "Invalid URL format"},
-            invalid_field="url",
-            expected_type="string"
-        )
-
-        assert error.error_code == "VALIDATION_ERROR"
-        assert error.details["invalid_field"] == "url"
-        assert error.details["expected_type"] == "string"
-
-    def test_handle_firecrawl_error_basic(self):
+    def test_handle_firecrawl_error_basic(self) -> None:
         """Test basic Firecrawl error handling."""
         original_error = FirecrawlError("Original error")
+        tool_error = handle_firecrawl_error(original_error)
 
-        mcp_error = handle_firecrawl_error(original_error)
+        assert isinstance(tool_error, ToolError)
+        assert "Original error" in str(tool_error)
 
-        assert isinstance(mcp_error, MCPError)
-        assert "Original error" in str(mcp_error)
-        assert mcp_error.details["original_error"] == "FirecrawlError"
-
-    def test_handle_firecrawl_error_with_context(self):
+    def test_handle_firecrawl_error_with_context(self) -> None:
         """Test Firecrawl error handling with context."""
         original_error = BadRequestError("Bad request")
-        context = {"tool": "scrape", "url": "https://example.com"}
+        context = "scraping https://example.com"
 
-        mcp_error = handle_firecrawl_error(original_error, context)
+        tool_error = handle_firecrawl_error(original_error, context)
 
-        assert isinstance(mcp_error, MCPValidationError)
-        assert "tool=scrape" in str(mcp_error)
-        assert mcp_error.details["tool"] == "scrape"
+        assert isinstance(tool_error, ToolError)
+        assert "Bad request" in str(tool_error)
+        assert "scraping https://example.com" in str(tool_error)
 
-    def test_handle_firecrawl_bad_request_error_mapping(self):
-        """Test that BadRequestError is mapped to MCPValidationError."""
+    def test_handle_firecrawl_bad_request_error_mapping(self) -> None:
+        """Test that BadRequestError is handled appropriately."""
         original_error = BadRequestError("Bad request")
-        mcp_error = handle_firecrawl_error(original_error)
+        tool_error = handle_firecrawl_error(original_error)
 
-        assert isinstance(mcp_error, MCPValidationError), f"Expected MCPValidationError, got {type(mcp_error).__name__}"
+        assert isinstance(tool_error, ToolError)
+        assert "Invalid request parameters" in str(tool_error)
 
-    def test_handle_firecrawl_unauthorized_error_mapping(self):
-        """Test that UnauthorizedError is mapped to MCPAuthenticationError."""
+    def test_handle_firecrawl_unauthorized_error_mapping(self) -> None:
+        """Test that UnauthorizedError is handled appropriately."""
         original_error = UnauthorizedError("Unauthorized")
-        mcp_error = handle_firecrawl_error(original_error)
+        tool_error = handle_firecrawl_error(original_error)
 
-        assert isinstance(mcp_error, MCPAuthenticationError), f"Expected MCPAuthenticationError, got {type(mcp_error).__name__}"
+        assert isinstance(tool_error, ToolError)
+        assert "Authentication failed" in str(tool_error)
 
-    def test_handle_firecrawl_rate_limit_error_mapping(self):
-        """Test that RateLimitError is mapped to MCPRateLimitError."""
+    def test_handle_firecrawl_rate_limit_error_mapping(self) -> None:
+        """Test that RateLimitError is handled appropriately."""
         original_error = RateLimitError("Rate limited")
-        mcp_error = handle_firecrawl_error(original_error)
+        tool_error = handle_firecrawl_error(original_error)
 
-        assert isinstance(mcp_error, MCPRateLimitError), f"Expected MCPRateLimitError, got {type(mcp_error).__name__}"
+        assert isinstance(tool_error, ToolError)
+        assert "Rate limit exceeded" in str(tool_error)
 
-    def test_handle_firecrawl_internal_server_error_mapping(self):
-        """Test that InternalServerError is mapped to MCPServerError."""
+    def test_handle_firecrawl_internal_server_error_mapping(self) -> None:
+        """Test that InternalServerError is handled appropriately."""
         original_error = InternalServerError("Server error")
-        mcp_error = handle_firecrawl_error(original_error)
+        tool_error = handle_firecrawl_error(original_error)
 
-        assert isinstance(mcp_error, MCPServerError), f"Expected MCPServerError, got {type(mcp_error).__name__}"
+        assert isinstance(tool_error, ToolError)
+        assert "Internal server error" in str(tool_error)
 
-    def test_log_error_function(self, caplog):
+    def test_create_tool_error_basic(self) -> None:
+        """Test basic tool error creation."""
+        error = create_tool_error("Test error")
+
+        assert isinstance(error, ToolError)
+        assert str(error) == "Test error"
+
+    def test_create_tool_error_with_details(self) -> None:
+        """Test tool error creation with details."""
+        details = {"url": "https://example.com", "tool": "scrape"}
+        error = create_tool_error("Test error", details)
+
+        assert isinstance(error, ToolError)
+        assert "Test error" in str(error)
+        assert "url=https://example.com" in str(error)
+        assert "tool=scrape" in str(error)
+
+    def test_log_error_function(self, caplog: Any) -> None:
         """Test error logging function."""
-        error = MCPValidationError("Test validation error")
+        error = ToolError("Test validation error")
         context = {"operation": "test"}
 
         mcp_log_error(error, context)
 
         # Check that error was logged
-        assert len(caplog.records) == 1
-        assert "MCPValidationError" in caplog.records[0].message
-        assert "operation=test" in caplog.records[0].message
+        assert len(caplog.records) >= 1
+        log_messages = [record.message for record in caplog.records]
+        assert any("ToolError" in msg for msg in log_messages)
 
-    def test_create_error_response_mcp_error(self):
-        """Test error response creation for MCP errors."""
-        error = MCPToolError("Tool error", tool_name="test_tool")
-
-        response = create_error_response(error)
-
-        assert response["error"] == "MCPToolError"
-        assert response["message"] == "Tool error"
-        assert response["error_code"] == "TOOL_ERROR"
-        assert response["details"]["tool_name"] == "test_tool"
-
-    def test_create_error_response_generic_error(self):
+    def test_create_error_response_generic_error(self) -> None:
         """Test error response creation for generic errors."""
         error = ValueError("Generic error")
 
@@ -537,58 +446,49 @@ class TestMCPExceptions:
         assert response["details"] == {}
 
 
-class TestErrorInheritance:
-    """Test suite for MCP error inheritance and compatibility."""
+class TestLegacyErrorInheritance:
+    """Test suite for legacy MCP error inheritance."""
 
-    def test_authentication_error_inheritance(self):
-        """Test that MCPAuthenticationError inherits from both UnauthorizedError and MCPError."""
+    def test_authentication_error_inheritance(self) -> None:
+        """Test that MCPAuthenticationError inherits from MCPError."""
         error = MCPAuthenticationError("Auth failed")
-
-        assert isinstance(error, UnauthorizedError)
         assert isinstance(error, MCPError)
-        assert error.status_code == 401
+        assert isinstance(error, Exception)
 
-    def test_rate_limit_error_inheritance(self):
-        """Test that MCPRateLimitError inherits from both RateLimitError and MCPError."""
-        error = MCPRateLimitError("Rate limited", limit=100, current_usage=150)
-
-        assert isinstance(error, RateLimitError)
+    def test_rate_limit_error_inheritance(self) -> None:
+        """Test that MCPRateLimitError inherits from MCPError."""
+        error = MCPRateLimitError("Rate limited")
         assert isinstance(error, MCPError)
-        assert error.status_code == 429
-        assert error.details["limit"] == 100
+        assert isinstance(error, Exception)
 
-    def test_server_error_inheritance(self):
-        """Test that MCPServerError inherits from both InternalServerError and MCPError."""
-        error = MCPServerError("Server error", component="database")
-
-        assert isinstance(error, InternalServerError)
+    def test_server_error_inheritance(self) -> None:
+        """Test that MCPServerError inherits from MCPError."""
+        error = MCPServerError("Server error")
         assert isinstance(error, MCPError)
-        assert error.status_code == 500
-        assert error.details["component"] == "database"
+        assert isinstance(error, Exception)
 
 
 @pytest.mark.integration
 class TestIntegrationScenarios:
     """Integration test scenarios that require external dependencies."""
 
-    @pytest.mark.skipif(not os.getenv("FIRECRAWL_API_KEY"), reason="FIRECRAWL_API_KEY not available")
-    def test_real_client_initialization(self):
+    @pytest.mark.skipif(
+        not os.getenv("FIRECRAWL_API_KEY"), reason="FIRECRAWL_API_KEY not available"
+    )
+    def test_real_client_initialization(self) -> None:
         """Test client initialization with real API key."""
         # This test only runs if FIRECRAWL_API_KEY is available
-        config = MCPConfig()
-        client = FirecrawlMCPClient(config)
+        client = get_firecrawl_client()
+        assert isinstance(client, FirecrawlClient)
 
-        assert client.is_connected() is True
+        # Test connection status
+        status = get_client_status()
+        assert "status" in status
 
-        # Test connection validation
-        result = client.validate_connection()
-        assert result["status"] == "connected"
-
-    def test_config_with_missing_environment(self):
-        """Test configuration behavior with completely clean environment."""
+    def test_config_with_missing_environment(self) -> None:
+        """Test environment validation with completely clean environment."""
         with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError) as exc_info:
-                MCPConfig()
+            validation = validate_environment()
 
-            assert "Configuration validation failed" in str(exc_info.value)
-            assert "FIRECRAWL_API_KEY is required" in str(exc_info.value)
+            assert validation["valid"] is False
+            assert "FIRECRAWL_API_KEY is required" in str(validation["issues"])

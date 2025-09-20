@@ -17,5 +17,3 @@ Modules:
 __version__ = "0.1.0"
 __all__ = ["__version__"]
 
-# Server will be imported here once implemented
-# from .server import create_server

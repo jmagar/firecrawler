@@ -10,10 +10,10 @@ import os
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastmcp import Client, FastMCP
+from fastmcp import Client, Context, FastMCP
 from fastmcp.exceptions import ResourceError
+from firecrawl.v2.client import FirecrawlClient
 
-from firecrawl_mcp.core.client import FirecrawlMCPClient
 from firecrawl_mcp.core.config import MCPConfig
 from firecrawl_mcp.resources.resources import (
     get_active_operations,
@@ -32,7 +32,7 @@ class TestServerConfigResource:
     """Test server configuration resource functionality."""
 
     @patch("firecrawl_mcp.resources.resources.load_config")
-    async def test_get_server_config_success(self, mock_load_config):
+    async def test_get_server_config_success(self, mock_load_config: Mock) -> None:
         """Test successful retrieval of server configuration."""
         # Mock configuration
         mock_config = Mock(spec=MCPConfig)
@@ -110,7 +110,7 @@ class TestServerConfigResource:
         mock_ctx.info.assert_called_once_with("Server configuration retrieved successfully")
 
     @patch("firecrawl_mcp.resources.resources.load_config")
-    async def test_get_server_config_error(self, mock_load_config):
+    async def test_get_server_config_error(self, mock_load_config: Mock) -> None:
         """Test error handling in server configuration retrieval."""
         mock_load_config.side_effect = Exception("Configuration error")
 
@@ -134,7 +134,7 @@ class TestEnvironmentConfigResource:
         "AUTH_ENABLED": "false",
         "OPENAI_API_KEY": "openai-secret"
     })
-    async def test_get_environment_config_success(self, mock_load_config):
+    async def test_get_environment_config_success(self, mock_load_config: Mock) -> None:
         """Test successful retrieval of environment configuration."""
         # Mock configuration with masking method
         mock_config = Mock(spec=MCPConfig)
@@ -171,7 +171,7 @@ class TestEnvironmentConfigResource:
         mock_ctx.info.assert_called_once_with("Environment configuration retrieved successfully")
 
     @patch("firecrawl_mcp.resources.resources.load_config")
-    async def test_get_environment_config_error(self, mock_load_config):
+    async def test_get_environment_config_error(self, mock_load_config: Mock) -> None:
         """Test error handling in environment configuration retrieval."""
         mock_load_config.side_effect = Exception("Environment error")
 
@@ -187,10 +187,10 @@ class TestApiStatusResource:
     """Test API status resource functionality."""
 
     @patch("firecrawl_mcp.resources.resources.get_client")
-    async def test_get_api_status_success(self, mock_get_client):
+    async def test_get_api_status_success(self, mock_get_client: Mock) -> None:
         """Test successful retrieval of API status."""
         # Mock client with connection info
-        mock_client = Mock(spec=FirecrawlMCPClient)
+        mock_client = Mock(spec=FirecrawlClient)
         mock_client.is_connected.return_value = True
 
         # Mock connection info
@@ -251,9 +251,9 @@ class TestApiStatusResource:
         mock_ctx.info.assert_called_once_with("API status retrieved successfully")
 
     @patch("firecrawl_mcp.resources.resources.get_client")
-    async def test_get_api_status_disconnected(self, mock_get_client):
+    async def test_get_api_status_disconnected(self, mock_get_client: Mock) -> None:
         """Test API status when client is disconnected."""
-        mock_client = Mock(spec=FirecrawlMCPClient)
+        mock_client = Mock(spec=FirecrawlClient)
         mock_client.is_connected.return_value = False
 
         mock_connection_info = Mock()
@@ -276,7 +276,7 @@ class TestApiStatusResource:
         assert result["validation"]["error"] == "Client is not connected"
 
     @patch("firecrawl_mcp.resources.resources.get_client")
-    async def test_get_api_status_error_fallback(self, mock_get_client):
+    async def test_get_api_status_error_fallback(self, mock_get_client: Mock) -> None:
         """Test API status error fallback behavior."""
         mock_get_client.side_effect = Exception("Client initialization failed")
 
@@ -295,7 +295,7 @@ class TestSystemStatusResource:
 
     @patch("firecrawl_mcp.resources.resources.psutil")
     @patch("firecrawl_mcp.resources.resources.platform")
-    async def test_get_system_status_success(self, mock_platform, mock_psutil):
+    async def test_get_system_status_success(self, mock_platform: Mock, mock_psutil: Mock) -> None:
         """Test successful retrieval of system status."""
         # Mock platform information
         mock_platform.system.return_value = "Linux"
@@ -396,7 +396,7 @@ class TestSystemStatusResource:
         mock_ctx.info.assert_called_once_with("System status retrieved successfully")
 
     @patch("firecrawl_mcp.resources.resources.psutil")
-    async def test_get_system_status_high_usage_warning(self, mock_psutil):
+    async def test_get_system_status_high_usage_warning(self, mock_psutil: Mock) -> None:
         """Test system status with high resource usage warnings."""
         # Mock high CPU usage
         mock_psutil.cpu_count.return_value = 4
@@ -449,7 +449,7 @@ class TestSystemStatusResource:
         assert "High thread count" in result["health"]["issues"]
 
     @patch("firecrawl_mcp.resources.resources.psutil")
-    async def test_get_system_status_critical_memory(self, mock_psutil):
+    async def test_get_system_status_critical_memory(self, mock_psutil: Mock) -> None:
         """Test system status with critical memory usage."""
         # Mock critical memory usage
         mock_virtual_memory = Mock()
@@ -501,7 +501,7 @@ class TestServerStatusResource:
 
     @patch("firecrawl_mcp.resources.resources.get_server")
     @patch("firecrawl_mcp.resources.resources.get_client")
-    async def test_get_server_status_success(self, mock_get_client, mock_get_server):
+    async def test_get_server_status_success(self, mock_get_client: Mock, mock_get_server: Mock) -> None:
         """Test successful retrieval of server status."""
         # Mock server
         mock_server = Mock()
@@ -591,7 +591,7 @@ class TestServerStatusResource:
 
     @patch("firecrawl_mcp.resources.resources.get_server")
     @patch("firecrawl_mcp.resources.resources.get_client")
-    async def test_get_server_status_degraded(self, mock_get_client, mock_get_server):
+    async def test_get_server_status_degraded(self, mock_get_client: Mock, mock_get_server: Mock) -> None:
         """Test server status when partially degraded."""
         # Mock server with some issues
         mock_server = Mock()
@@ -647,7 +647,7 @@ class TestUsageStatisticsResource:
     """Test usage statistics resource functionality."""
 
     @patch("firecrawl_mcp.resources.resources.load_config")
-    async def test_get_usage_statistics_success(self, mock_load_config):
+    async def test_get_usage_statistics_success(self, mock_load_config: Mock) -> None:
         """Test successful retrieval of usage statistics."""
         mock_config = Mock()
         mock_config.rate_limit_enabled = True
@@ -705,7 +705,7 @@ class TestActiveOperationsResource:
     """Test active operations resource functionality."""
 
     @patch("firecrawl_mcp.resources.resources.load_config")
-    async def test_get_active_operations_success(self, mock_load_config):
+    async def test_get_active_operations_success(self, mock_load_config: Mock) -> None:
         """Test successful retrieval of active operations."""
         mock_config = Mock()
         mock_config.development_mode = True
@@ -753,7 +753,7 @@ class TestRecentLogsResource:
 
     @patch("firecrawl_mcp.resources.resources.load_config")
     @patch("firecrawl_mcp.resources.resources.os.path.exists")
-    async def test_get_recent_logs_no_logs_directory(self, mock_exists, mock_load_config):
+    async def test_get_recent_logs_no_logs_directory(self, mock_exists: Mock, mock_load_config: Mock) -> None:
         """Test recent logs when logs directory doesn't exist."""
         mock_config = Mock()
         mock_config.log_level = "INFO"
@@ -789,7 +789,7 @@ class TestRecentLogsResource:
     @patch("firecrawl_mcp.resources.resources.load_config")
     @patch("firecrawl_mcp.resources.resources.os.path.exists")
     @patch("firecrawl_mcp.resources.resources.os.path.getsize")
-    async def test_get_recent_logs_with_log_files(self, mock_getsize, mock_exists, mock_load_config):
+    async def test_get_recent_logs_with_log_files(self, mock_getsize: Mock, mock_exists: Mock, mock_load_config: Mock) -> None:
         """Test recent logs when log files exist."""
         mock_config = Mock()
         mock_config.log_level = "INFO"
@@ -807,14 +807,8 @@ class TestRecentLogsResource:
 2024-01-01 00:00:05 - firecrawl_mcp - INFO - Request processed successfully
 """
 
-        def mock_exists_side_effect(path):
-            if "logs" in path:
-                return True
-            if "firecrawler.log" in path:
-                return True
-            if "middleware.log" in path:
-                return True
-            return False
+        def mock_exists_side_effect(path: str) -> bool:
+            return "logs" in path or "firecrawler.log" in path or "middleware.log" in path
 
         mock_exists.side_effect = mock_exists_side_effect
         mock_getsize.return_value = 1024  # 1KB
@@ -846,7 +840,7 @@ class TestRecentLogsResource:
 class TestResourceRegistration:
     """Test resource registration with FastMCP server."""
 
-    def test_setup_resources_with_server(self):
+    def test_setup_resources_with_server(self) -> None:
         """Test setup of all resources with FastMCP server."""
         server = FastMCP("TestResourceServer")
 
@@ -858,7 +852,7 @@ class TestResourceRegistration:
         # without errors and the expected resources would be available
         assert True  # If we get here, registration completed successfully
 
-    async def test_registered_resources_availability(self):
+    async def test_registered_resources_availability(self) -> None:
         """Test that registered resources are available via MCP client."""
         server = FastMCP("TestResourceServer")
         setup_resources(server)
@@ -884,7 +878,7 @@ class TestResourceRegistration:
             for expected_resource in expected_resources:
                 assert expected_resource in resource_uris
 
-    async def test_resource_metadata_correctness(self):
+    async def test_resource_metadata_correctness(self) -> None:
         """Test that resource metadata is correctly set."""
         server = FastMCP("TestResourceServer")
         setup_resources(server)
@@ -909,7 +903,7 @@ class TestResourceRegistration:
             assert "connectivity" in api_status.get("tags", [])
 
     @patch("firecrawl_mcp.resources.resources.get_server_config")
-    async def test_resource_access_through_client(self, mock_get_server_config):
+    async def test_resource_access_through_client(self, mock_get_server_config: Mock) -> None:
         """Test accessing resources through MCP client."""
         # Mock the resource function
         mock_get_server_config.return_value = {
@@ -935,7 +929,7 @@ class TestResourceErrorHandling:
     """Test error handling in resource functions."""
 
     @patch("firecrawl_mcp.resources.resources.load_config")
-    async def test_resource_error_propagation(self, mock_load_config):
+    async def test_resource_error_propagation(self, mock_load_config: Mock) -> None:
         """Test that resource errors are properly propagated."""
         mock_load_config.side_effect = Exception("Configuration load failed")
 
@@ -949,7 +943,7 @@ class TestResourceErrorHandling:
         mock_ctx.error.assert_called_once()
 
     @patch("firecrawl_mcp.resources.resources.get_client")
-    async def test_api_status_error_handling(self, mock_get_client):
+    async def test_api_status_error_handling(self, mock_get_client: Mock) -> None:
         """Test API status error handling returns error status instead of raising."""
         mock_get_client.side_effect = Exception("Client error")
 
@@ -963,16 +957,16 @@ class TestResourceErrorHandling:
         assert "Client error" in result["connection"]["error"]
         assert result["validation"]["status"] == "failed"
 
-    async def test_resource_integration_error_handling(self):
+    async def test_resource_integration_error_handling(self) -> None:
         """Test error handling in resource integration with MCP server."""
         server = FastMCP("TestErrorHandlingServer")
 
         # Register a resource that will fail
         @server.resource("test://failing-resource")
-        async def failing_resource(ctx):
+        async def failing_resource(_ctx: Context) -> None:
             raise Exception("Resource processing failed")
 
         async with Client(server) as client:
             # Attempt to access the failing resource
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="Resource processing failed"):
                 await client.read_resource("test://failing-resource")

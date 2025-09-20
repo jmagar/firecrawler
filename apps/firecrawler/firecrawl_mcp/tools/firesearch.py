@@ -29,63 +29,57 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
         description="Search the web for information with optional content extraction. Returns search results from multiple sources (web, news, images) with optional full content scraping.",
         annotations={
             "title": "Web Search Engine",
-            "readOnlyHint": True,       # Only searches, doesn't modify
-            "destructiveHint": False,   # Safe search operation
-            "openWorldHint": True,      # Searches external web
-            "idempotentHint": False     # Search results may change over time
-        }
+            "readOnlyHint": True,  # Only searches, doesn't modify
+            "destructiveHint": False,  # Safe search operation
+            "openWorldHint": True,  # Searches external web
+            "idempotentHint": False,  # Search results may change over time
+        },
     )
     async def firesearch(
         ctx: Context,
-        query: Annotated[str, Field(
-            description="Search query string",
-            min_length=1,
-            max_length=500
-        )],
+        query: Annotated[
+            str, Field(description="Search query string", min_length=1, max_length=500)
+        ],
         sources: list[str] | None = Field(
             default=None,
-            description="List of source types to search (web, news, images). Defaults to ['web'] if not specified"
+            description="List of source types to search (web, news, images). Defaults to ['web'] if not specified",
         ),
         categories: list[str] | None = Field(
             default=None,
-            description="List of category filters (github, research). Optional category-based filtering"
+            description="List of category filters (github, research). Optional category-based filtering",
         ),
         limit: int | None = Field(
             default=5,
             description="Maximum number of search results to return per source type",
             ge=1,
-            le=100
+            le=100,
         ),
         location: str | None = Field(
             default=None,
-            description="Geographic location for search results (e.g., 'United States', 'London')"
+            description="Geographic location for search results (e.g., 'United States', 'London')",
         ),
         tbs: str | None = Field(
             default=None,
-            description="Time-based search filter (e.g., 'qdr:d' for past day, 'qdr:w' for past week, 'qdr:m' for past month)"
+            description="Time-based search filter (e.g., 'qdr:d' for past day, 'qdr:w' for past week, 'qdr:m' for past month)",
         ),
         ignore_invalid_urls: bool | None = Field(
-            default=None,
-            description="Whether to ignore invalid URLs and continue processing"
+            default=None, description="Whether to ignore invalid URLs and continue processing"
         ),
         timeout: int | None = Field(
-            default=60000,
-            description="Request timeout in milliseconds",
-            ge=1000,
-            le=300000
+            default=60000, description="Request timeout in milliseconds", ge=1000, le=300000
         ),
         scrape_options: dict[str, Any] | None = Field(
             default=None,
-            description="Optional scraping configuration (formats, headers, timeout, etc)"
-        )
+            description="Optional scraping configuration (formats, headers, timeout, etc)",
+        ),
     ) -> SearchData:
         """
         Search the web for information with optional content extraction.
-        
+
         This tool performs web search across multiple sources and optionally extracts
         full content from the found URLs. It supports comprehensive parameter validation,
         multiple source types, geographic filtering, and time-based constraints.
-        
+
         Args:
             query: Search query string
             sources: List of source types to search (web, news, images)
@@ -97,10 +91,10 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
             timeout: Request timeout in milliseconds
             scrape_options: Optional scraping configuration to extract full content
             ctx: MCP context for logging and progress reporting
-            
+
         Returns:
             SearchData: Search results grouped by source type with optional scraped content
-            
+
         Raises:
             ToolError: If search fails or configuration is invalid
         """
@@ -126,7 +120,9 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
                 if not isinstance(source, str):
                     raise ToolError(f"Source must be a string, got: {type(source)}")
                 if source not in valid_source_types:
-                    raise ToolError(f"Invalid source type: {source}. Valid types: {list(valid_source_types)}")
+                    raise ToolError(
+                        f"Invalid source type: {source}. Valid types: {list(valid_source_types)}"
+                    )
 
             # Validate categories
             if categories is not None:
@@ -135,7 +131,9 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
                     if not isinstance(category, str):
                         raise ToolError(f"Category must be a string, got: {type(category)}")
                     if category not in valid_category_types:
-                        raise ToolError(f"Invalid category type: {category}. Valid types: {list(valid_category_types)}")
+                        raise ToolError(
+                            f"Invalid category type: {category}. Valid types: {list(valid_category_types)}"
+                        )
 
             # Validate other parameters
             if limit is not None and (limit < 1 or limit > 100):
@@ -147,18 +145,29 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
             # Validate time-based search parameter
             if tbs is not None:
                 valid_tbs_values = {
-                    "qdr:h", "qdr:d", "qdr:w", "qdr:m", "qdr:y",  # Google time filters
-                    "d", "w", "m", "y"  # Short forms
+                    "qdr:h",
+                    "qdr:d",
+                    "qdr:w",
+                    "qdr:m",
+                    "qdr:y",  # Google time filters
+                    "d",
+                    "w",
+                    "m",
+                    "y",  # Short forms
                 }
 
                 if tbs not in valid_tbs_values and not tbs.startswith("cdr:"):
-                    raise ToolError(f"Invalid tbs value: {tbs}. Valid values: {list(valid_tbs_values)} or custom date range format: cdr:1,cd_min:MM/DD/YYYY,cd_max:MM/DD/YYYY")
+                    raise ToolError(
+                        f"Invalid tbs value: {tbs}. Valid values: {list(valid_tbs_values)} or custom date range format: cdr:1,cd_min:MM/DD/YYYY,cd_max:MM/DD/YYYY"
+                    )
 
             # Report progress
             await ctx.report_progress(20, 100)
 
             # Log search parameters
-            await ctx.info(f"Search parameters: sources={sources}, limit={limit}, location={location}")
+            await ctx.info(
+                f"Search parameters: sources={sources}, limit={limit}, location={location}"
+            )
             if scrape_options:
                 await ctx.info("Scraping enabled - will extract full content from search results")
 
@@ -171,10 +180,7 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
             # Convert scrape_options dict to ScrapeOptions if needed
             scrape_opts = None
             if scrape_options:
-                if isinstance(scrape_options, dict):
-                    scrape_opts = ScrapeOptions(**scrape_options)
-                else:
-                    scrape_opts = scrape_options
+                scrape_opts = ScrapeOptions(**scrape_options)
 
             search_data = client.search(
                 query=query,
@@ -185,7 +191,7 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
                 tbs=tbs,
                 ignore_invalid_urls=ignore_invalid_urls,
                 timeout=timeout,
-                scrape_options=scrape_opts
+                scrape_options=scrape_opts,
             )
 
             # Report progress
@@ -218,17 +224,13 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
         except FirecrawlError as e:
             error_msg = f"Firecrawl API error during search: {e}"
             await ctx.error(error_msg)
-            raise handle_firecrawl_error(e, "firesearch")
+            raise handle_firecrawl_error(e, "firesearch") from e
 
         except Exception as e:
             error_msg = f"Unexpected error during search: {e}"
             await ctx.error(error_msg)
             raise ToolError(error_msg) from e
 
-    return ["firesearch"]
-
 
 # Tool exports for registration
-__all__ = [
-    "register_firesearch_tools"
-]
+__all__ = ["register_firesearch_tools"]

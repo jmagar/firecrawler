@@ -7,6 +7,7 @@ replacing the complex dataclass configuration system.
 
 import logging
 import os
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -15,11 +16,11 @@ logger = logging.getLogger(__name__)
 def get_env_bool(key: str, default: bool = False) -> bool:
     """
     Parse a boolean environment variable.
-    
+
     Args:
         key: Environment variable name
         default: Default value if not set
-        
+
     Returns:
         Boolean value from environment or default
     """
@@ -32,11 +33,11 @@ def get_env_bool(key: str, default: bool = False) -> bool:
 def get_env_int(key: str, default: int) -> int:
     """
     Parse an integer environment variable with fallback.
-    
+
     Args:
         key: Environment variable name
         default: Default value if not set or invalid
-        
+
     Returns:
         Integer value from environment or default
     """
@@ -54,11 +55,11 @@ def get_env_int(key: str, default: int) -> int:
 def get_env_float(key: str, default: float) -> float:
     """
     Parse a float environment variable with fallback.
-    
+
     Args:
         key: Environment variable name
         default: Default value if not set or invalid
-        
+
     Returns:
         Float value from environment or default
     """
@@ -76,7 +77,7 @@ def get_env_float(key: str, default: float) -> float:
 def get_server_info() -> dict[str, Any]:
     """
     Get basic server information from environment.
-    
+
     Returns:
         Dict with server name, version, and configuration status
     """
@@ -93,7 +94,7 @@ def get_server_info() -> dict[str, Any]:
 def validate_environment() -> dict[str, Any]:
     """
     Validate essential environment configuration.
-    
+
     Returns:
         Dict containing validation results and recommendations
     """
@@ -121,25 +122,25 @@ def validate_environment() -> dict[str, Any]:
 class MCPConfig:
     """
     DEPRECATED: Legacy config class for backward compatibility.
-    
+
     Use environment functions directly instead of this class.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         logger.warning("MCPConfig is deprecated, use environment functions directly")
 
     def is_valid(self) -> bool:
-        return validate_environment()["valid"]
+        validation_result = validate_environment()
+        return bool(validation_result.get("valid", False))
 
     def get_current_timestamp(self) -> str:
-        from datetime import UTC, datetime
         return datetime.now(UTC).isoformat()
 
 
-def load_config():
+def load_config() -> MCPConfig:
     """
     DEPRECATED: Load configuration.
-    
+
     Use validate_environment() or direct environment access instead.
     """
     logger.warning("load_config() is deprecated, use validate_environment() instead")

@@ -17,7 +17,7 @@ import {
 import {
   searchSimilarVectors,
   VectorSearchOptions,
-  VectorSearchResult,
+  VectorSearchResult as ServiceVectorSearchResult,
 } from "../../services/vector-storage";
 import {
   VectorSearchRequest,
@@ -264,10 +264,75 @@ function transformFilters(request: VectorSearchRequest): VectorSearchOptions {
 }
 
 /**
+ * Calculates quality-weighted ranking score for vector search results
+ * Combines similarity score with content quality metrics for better relevance
+ */
+function calculateQualityWeightedScore(
+  result: ServiceVectorSearchResult,
+  qualityWeight: number = 0.15, // Phase 1: Conservative quality weighting
+): number {
+  const similarityScore = result.similarity;
+
+  // Extract quality metrics from metadata (added by Phase 1 enhancements)
+  const qualityScore = result.metadata.quality_score ?? 0.5; // Default to neutral if missing
+  const contentDensity = result.metadata.content_density ?? 0.5;
+  const navigationRatio = result.metadata.navigation_ratio ?? 0.3;
+  const structuralQuality = result.metadata.structural_quality ?? 0.5;
+
+  // Composite quality score with weighted factors
+  const compositeQuality =
+    qualityScore * 0.4 + // Overall quality (40%)
+    contentDensity * 0.3 + // Content density (30%)
+    structuralQuality * 0.2 + // Structural quality (20%)
+    (1 - navigationRatio) * 0.1; // Low navigation ratio is good (10%)
+
+  // Clamp composite quality to [0, 1]
+  const clampedQuality = Math.min(1, Math.max(0, compositeQuality));
+
+  // Calculate final weighted score
+  // Higher similarity weight (0.85) with moderate quality influence (0.15)
+  const weightedScore =
+    similarityScore * (1 - qualityWeight) + clampedQuality * qualityWeight;
+
+  return Math.min(1, Math.max(0, weightedScore));
+}
+
+/**
+ * Applies quality-weighted ranking to vector search results
+ * Sorts results by composite score of similarity + quality metrics
+ */
+function applyQualityWeightedRanking(
+  results: ServiceVectorSearchResult[],
+  qualityThreshold?: number,
+): ServiceVectorSearchResult[] {
+  // Calculate quality-weighted scores for all results
+  const scoredResults = results.map(result => ({
+    ...result,
+    qualityWeightedScore: calculateQualityWeightedScore(result),
+  }));
+
+  // Filter by quality threshold if specified
+  let filteredResults = scoredResults;
+  if (qualityThreshold !== undefined && qualityThreshold > 0) {
+    filteredResults = scoredResults.filter(
+      result => (result.metadata.quality_score ?? 0.5) >= qualityThreshold,
+    );
+  }
+
+  // Sort by quality-weighted score (descending)
+  const rankedResults = filteredResults.sort(
+    (a, b) => b.qualityWeightedScore - a.qualityWeightedScore,
+  );
+
+  // Remove the temporary scoring field and return
+  return rankedResults.map(({ qualityWeightedScore, ...result }) => result);
+}
+
+/**
  * Transforms vector search results to API response format
  */
 function transformResults(
-  results: VectorSearchResult[],
+  results: ServiceVectorSearchResult[],
   request: VectorSearchRequest,
   offset: number,
 ): APIVectorSearchResult[] {
@@ -363,7 +428,7 @@ async function executeVectorSearchWithFallback(
   searchOptions: VectorSearchOptions,
   logger: any,
 ): Promise<{
-  results: VectorSearchResult[];
+  results: ServiceVectorSearchResult[];
   threshold: number;
   timing: number;
 }> {
@@ -384,7 +449,7 @@ async function executeVectorSearchWithFallback(
   // Pick the highest threshold that still yields results
   const sortedDesc = [...thresholdCandidates].sort((a, b) => b - a);
   let usedThreshold = minCandidate;
-  let vectorResults: VectorSearchResult[] = [];
+  let vectorResults: ServiceVectorSearchResult[] = [];
 
   for (const t of sortedDesc) {
     const filtered = allResults.filter(r => r.similarity >= t);
@@ -402,10 +467,10 @@ async function executeVectorSearchWithFallback(
  * Apply pagination to search results
  */
 function applyPagination(
-  results: VectorSearchResult[],
+  results: ServiceVectorSearchResult[],
   limit: number,
   offset: number,
-): VectorSearchResult[] {
+): ServiceVectorSearchResult[] {
   const offsetResults = offset > 0 ? results.slice(offset) : results;
   return offsetResults.slice(0, limit);
 }
@@ -416,7 +481,7 @@ function applyPagination(
 function logSearchMetrics(
   logger: any,
   request: VectorSearchRequest,
-  vectorResults: VectorSearchResult[],
+  vectorResults: ServiceVectorSearchResult[],
   apiResults: APIVectorSearchResult[],
   usedThreshold: number,
   thresholdHistory: number[],
@@ -518,7 +583,31 @@ export async function vectorSearch(
     );
 
     vectorSearchTime = searchResult.timing;
-    const { results: vectorResults, threshold: usedThreshold } = searchResult;
+    let { results: vectorResults, threshold: usedThreshold } = searchResult;
+
+    // Step 3.5: Phase 1 - Apply quality-weighted ranking
+    // Extract quality threshold from filters if available (future enhancement)
+    const qualityThreshold = undefined; // Will be configurable in Phase 2
+
+    if (vectorResults.length > 0) {
+      logger.debug("Applying quality-weighted ranking", {
+        module: "vector_search/quality",
+        method: "vectorSearch",
+        originalResultsCount: vectorResults.length,
+        qualityThreshold,
+      });
+
+      vectorResults = applyQualityWeightedRanking(
+        vectorResults,
+        qualityThreshold,
+      );
+
+      logger.debug("Quality-weighted ranking applied", {
+        module: "vector_search/quality",
+        method: "vectorSearch",
+        rankedResultsCount: vectorResults.length,
+      });
+    }
 
     // Step 4: Apply pagination
     const paginatedResults = applyPagination(

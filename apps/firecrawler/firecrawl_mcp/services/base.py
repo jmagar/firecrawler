@@ -7,8 +7,12 @@ with Context parameter injection for dependencies.
 """
 
 import logging
+import math
+import re
+from typing import Any
+from urllib.parse import urlparse
 
-from ..core.config import get_config
+from ..core.config import get_server_info
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +20,10 @@ logger = logging.getLogger(__name__)
 def validate_url(url: str) -> bool:
     """
     Simple URL validation utility.
-    
+
     Args:
         url: URL to validate
-        
+
     Returns:
         True if URL appears valid, False otherwise
     """
@@ -30,13 +34,13 @@ def validate_url(url: str) -> bool:
     return url.startswith(('http://', 'https://'))
 
 
-def sanitize_filename(filename: str) -> str:
+def sanitize_filename(filename: Any) -> str:
     """
     Sanitize a filename for safe file system usage.
-    
+
     Args:
         filename: Original filename
-        
+
     Returns:
         Sanitized filename
     """
@@ -44,8 +48,6 @@ def sanitize_filename(filename: str) -> str:
         return "unknown_file"
 
     # Remove or replace dangerous characters
-    import re
-
     # Replace spaces and special chars with underscores
     sanitized = re.sub(r'[^\w\-_\.]', '_', filename)
 
@@ -62,10 +64,10 @@ def sanitize_filename(filename: str) -> str:
 def format_file_size(size_bytes: int) -> str:
     """
     Format file size in human-readable format.
-    
+
     Args:
         size_bytes: Size in bytes
-        
+
     Returns:
         Human-readable size string
     """
@@ -73,24 +75,23 @@ def format_file_size(size_bytes: int) -> str:
         return "0 B"
 
     size_names = ["B", "KB", "MB", "GB", "TB"]
-    import math
 
-    i = int(math.floor(math.log(size_bytes, 1024)))
+    i = math.floor(math.log(size_bytes, 1024))
     p = math.pow(1024, i)
     s = round(size_bytes / p, 2)
 
     return f"{s} {size_names[i]}"
 
 
-def truncate_text(text: str, max_length: int = 1000, suffix: str = "...") -> str:
+def truncate_text(text: Any, max_length: int = 1000, suffix: str = "...") -> str:
     """
     Truncate text to specified length with optional suffix.
-    
+
     Args:
         text: Text to truncate
         max_length: Maximum length
         suffix: Suffix to add if truncated
-        
+
     Returns:
         Truncated text
     """
@@ -106,15 +107,14 @@ def truncate_text(text: str, max_length: int = 1000, suffix: str = "...") -> str
 def extract_domain(url: str) -> str | None:
     """
     Extract domain from URL.
-    
+
     Args:
         url: URL to extract domain from
-        
+
     Returns:
         Domain name or None if extraction fails
     """
     try:
-        from urllib.parse import urlparse
         parsed = urlparse(url)
         return parsed.netloc.lower() if parsed.netloc else None
     except Exception:
@@ -124,10 +124,10 @@ def extract_domain(url: str) -> str | None:
 def get_file_extension(filename: str) -> str:
     """
     Get file extension from filename.
-    
+
     Args:
         filename: Filename to extract extension from
-        
+
     Returns:
         File extension (without dot) or empty string
     """
@@ -141,9 +141,8 @@ def get_file_extension(filename: str) -> str:
 __all__ = [
     "extract_domain",
     "format_file_size",
-    "get_client",  # From core.client
-    "get_config",  # From core.config
     "get_file_extension",
+    "get_server_info",  # From core.config
     "sanitize_filename",
     "truncate_text",
     "validate_url",

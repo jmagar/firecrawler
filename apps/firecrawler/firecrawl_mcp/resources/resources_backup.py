@@ -11,6 +11,7 @@ import os
 import platform
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import psutil
@@ -18,10 +19,26 @@ from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ResourceError
 
 from ..core.client import get_firecrawl_client
-from ..core.config import load_config
+from ..core.config import (
+    get_env_bool,
+    get_env_float,
+    get_env_int,
+    get_server_info,
+    validate_environment,
+)
 from ..core.exceptions import MCPClientError, mcp_log_error
 
 logger = logging.getLogger(__name__)
+
+
+# Helper functions
+
+
+def _mask_sensitive_value(value: str) -> str:
+    """Mask sensitive values for display."""
+    if not value or len(value) <= 8:
+        return "<masked>" if value else ""
+    return f"{value[:4]}{'*' * (len(value) - 8)}{value[-4:]}"
 
 
 # Resource functions that can be registered with FastMCP server instances
@@ -30,70 +47,71 @@ logger = logging.getLogger(__name__)
 async def get_server_config(ctx: Context) -> dict[str, Any]:
     """
     Get comprehensive server configuration information.
-    
+
     Returns:
         Dictionary containing server configuration, environment settings,
         feature flags, and runtime parameters.
     """
     try:
-        config = load_config()
+        server_info = get_server_info()
 
         server_config = {
             "server_info": {
-                "name": config.server_name,
-                "version": config.server_version,
-                "host": config.server_host,
-                "port": config.server_port,
-                "environment": "development" if config.development_mode else "production"
+                "name": server_info["server_name"],
+                "version": server_info["server_version"],
+                "host": os.getenv("MCP_SERVER_HOST", "localhost"),
+                "port": get_env_int("MCP_SERVER_PORT", 5100),
+                "environment": "development" if server_info["development_mode"] else "production"
             },
             "api_configuration": {
-                "base_url": config.firecrawl_api_url,
-                "has_api_key": bool(config.firecrawl_api_key),
-                "timeout": config.firecrawl_timeout,
-                "max_retries": config.firecrawl_max_retries,
-                "backoff_factor": config.firecrawl_backoff_factor
+                "base_url": server_info["api_url"],
+                "has_api_key": server_info["api_key_configured"],
+                "timeout": get_env_int("FIRECRAWL_TIMEOUT", 30),
+                "max_retries": get_env_int("FIRECRAWL_MAX_RETRIES", 3),
+                "backoff_factor": get_env_float("FIRECRAWL_BACKOFF_FACTOR", 2.0)
             },
             "feature_flags": {
-                "auth_enabled": config.auth_enabled,
-                "rate_limit_enabled": config.rate_limit_enabled,
-                "cache_enabled": config.cache_enabled,
-                "vector_search_enabled": config.vector_search_enabled,
-                "debug_mode": config.debug_mode,
-                "metrics_enabled": config.enable_metrics,
-                "health_checks_enabled": config.enable_health_checks
+                "auth_enabled": get_env_bool("AUTH_ENABLED"),
+                "rate_limit_enabled": get_env_bool("RATE_LIMIT_ENABLED"),
+                "cache_enabled": get_env_bool("CACHE_ENABLED"),
+                "vector_search_enabled": get_env_bool("VECTOR_SEARCH_ENABLED"),
+                "debug_mode": server_info["debug_mode"],
+                "metrics_enabled": get_env_bool("ENABLE_METRICS"),
+                "health_checks_enabled": get_env_bool("ENABLE_HEALTH_CHECKS")
             },
             "logging_config": {
-                "level": config.log_level,
-                "format": config.log_format,
-                "file": config.log_file,
-                "max_size_mb": config.log_max_size // (1024 * 1024),
-                "backup_count": config.log_backup_count
+                "level": os.getenv("LOG_LEVEL", "INFO"),
+                "format": os.getenv("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"),
+                "file": os.getenv("LOG_FILE", "firecrawler.log"),
+                "max_size_mb": get_env_int("LOG_MAX_SIZE", 10485760) // (1024 * 1024),
+                "backup_count": get_env_int("LOG_BACKUP_COUNT", 3)
             },
             "rate_limiting": {
-                "enabled": config.rate_limit_enabled,
-                "requests_per_minute": config.rate_limit_requests_per_minute,
-                "requests_per_hour": config.rate_limit_requests_per_hour,
-                "burst_size": config.rate_limit_burst_size
+                "enabled": get_env_bool("RATE_LIMIT_ENABLED"),
+                "requests_per_minute": get_env_int("RATE_LIMIT_REQUESTS_PER_MINUTE", 60),
+                "requests_per_hour": get_env_int("RATE_LIMIT_REQUESTS_PER_HOUR", 1000),
+                "burst_size": get_env_int("RATE_LIMIT_BURST_SIZE", 10)
             },
             "llm_providers": {
                 "available": [provider for provider in ["openai", "ollama"]
-                            if getattr(config, f"{provider}_api_key" if provider == "openai" else f"{provider}_base_url")],
-                "preferred": config.get_llm_provider(),
-                "openai_model": config.openai_model,
-                "ollama_model": config.ollama_model
+                            if (provider == "openai" and os.getenv("OPENAI_API_KEY")) or
+                               (provider == "ollama" and os.getenv("OLLAMA_BASE_URL"))],
+                "preferred": "openai" if os.getenv("OPENAI_API_KEY") else ("ollama" if os.getenv("OLLAMA_BASE_URL") else "none"),
+                "openai_model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+                "ollama_model": os.getenv("OLLAMA_MODEL", "llama3.1:8b")
             },
             "cache_settings": {
-                "enabled": config.cache_enabled,
-                "ttl_seconds": config.cache_ttl_seconds,
-                "max_size": config.cache_max_size
+                "enabled": get_env_bool("CACHE_ENABLED"),
+                "ttl_seconds": get_env_int("CACHE_TTL_SECONDS", 3600),
+                "max_size": get_env_int("CACHE_MAX_SIZE", 1000)
             },
             "vector_search": {
-                "enabled": config.vector_search_enabled,
-                "threshold": config.vector_search_threshold,
-                "default_limit": config.vector_search_limit
+                "enabled": get_env_bool("VECTOR_SEARCH_ENABLED"),
+                "threshold": get_env_float("VECTOR_SEARCH_THRESHOLD", 0.5),
+                "default_limit": get_env_int("VECTOR_SEARCH_LIMIT", 10)
             },
-            "timestamp": config.get_current_timestamp(),
-            "config_valid": config.is_valid()
+            "timestamp": datetime.now(UTC).isoformat(),
+            "config_valid": validate_environment()["valid"]
         }
 
         await ctx.info("Server configuration retrieved successfully")
@@ -102,25 +120,23 @@ async def get_server_config(ctx: Context) -> dict[str, Any]:
     except Exception as e:
         error_msg = f"Failed to retrieve server configuration: {e}"
         await ctx.error(error_msg)
-        mcp_mcp_log_error(e, {"resource": "server_config"})
+        mcp_log_error(e, {"resource": "server_config"})
         raise ResourceError(error_msg) from e
 
 
 async def get_environment_config(ctx: Context) -> dict[str, Any]:
     """
     Get environment variable configuration with sensitive values masked.
-    
+
     Returns:
         Dictionary containing environment variables relevant to Firecrawler MCP server
         with sensitive values appropriately masked for security.
     """
     try:
-        config = load_config()
-
         # Define environment variables to include
         env_vars = {
             # Firecrawl Configuration
-            "FIRECRAWL_API_KEY": config._mask_sensitive_value(os.getenv("FIRECRAWL_API_KEY", "")),
+            "FIRECRAWL_API_KEY": _mask_sensitive_value(os.getenv("FIRECRAWL_API_KEY", "")),
             "FIRECRAWL_API_URL": os.getenv("FIRECRAWL_API_URL", ""),
             "FIRECRAWL_TIMEOUT": os.getenv("FIRECRAWL_TIMEOUT", ""),
             "FIRECRAWL_MAX_RETRIES": os.getenv("FIRECRAWL_MAX_RETRIES", ""),
@@ -139,7 +155,7 @@ async def get_environment_config(ctx: Context) -> dict[str, Any]:
 
             # Authentication
             "AUTH_ENABLED": os.getenv("AUTH_ENABLED", ""),
-            "AUTH_TOKEN": config._mask_sensitive_value(os.getenv("AUTH_TOKEN", "")),
+            "AUTH_TOKEN": _mask_sensitive_value(os.getenv("AUTH_TOKEN", "")),
             "AUTH_API_KEYS": "<masked>" if os.getenv("AUTH_API_KEYS") else "",
 
             # Rate Limiting
@@ -157,7 +173,7 @@ async def get_environment_config(ctx: Context) -> dict[str, Any]:
             "VECTOR_SEARCH_THRESHOLD": os.getenv("VECTOR_SEARCH_THRESHOLD", ""),
 
             # LLM Providers
-            "OPENAI_API_KEY": config._mask_sensitive_value(os.getenv("OPENAI_API_KEY", "")),
+            "OPENAI_API_KEY": _mask_sensitive_value(os.getenv("OPENAI_API_KEY", "")),
             "OPENAI_MODEL": os.getenv("OPENAI_MODEL", ""),
             "OPENAI_MAX_TOKENS": os.getenv("OPENAI_MAX_TOKENS", ""),
             "OPENAI_TEMPERATURE": os.getenv("OPENAI_TEMPERATURE", ""),
@@ -212,7 +228,7 @@ async def get_environment_config(ctx: Context) -> dict[str, Any]:
             "metadata": {
                 "total_variables": len([v for v in env_vars.values() if v]),
                 "masked_count": len([v for v in env_vars.values() if "*" in str(v)]),
-                "timestamp": config.get_current_timestamp()
+                "timestamp": datetime.now(UTC).isoformat()
             }
         }
 
@@ -229,7 +245,7 @@ async def get_environment_config(ctx: Context) -> dict[str, Any]:
 async def get_api_status(ctx: Context) -> dict[str, Any]:
     """
     Get comprehensive Firecrawl API status information.
-    
+
     Returns:
         Dictionary containing API connectivity status, authentication validation,
         credit information, and endpoint health details.
@@ -321,7 +337,7 @@ async def get_api_status(ctx: Context) -> dict[str, Any]:
 async def get_system_status(ctx: Context) -> dict[str, Any]:
     """
     Get comprehensive system status and health information.
-    
+
     Returns:
         Dictionary containing system metrics, resource usage, Python runtime
         information, and server health indicators.
@@ -331,7 +347,7 @@ async def get_system_status(ctx: Context) -> dict[str, Any]:
         process = psutil.Process()
 
         # System information
-        system_info = {
+        system_info: dict[str, Any] = {
             "platform": {
                 "system": platform.system(),
                 "release": platform.release(),
@@ -421,55 +437,53 @@ async def get_system_status(ctx: Context) -> dict[str, Any]:
 async def get_server_status(ctx: Context) -> dict[str, Any]:
     """
     Get comprehensive MCP server status information.
-    
+
     Returns:
         Dictionary containing server status, registered components,
         configuration validity, and operational readiness.
     """
     try:
-        from ..server import get_server
-
-        server = get_server()
-        config = server.config
+        server_info = get_server_info()
+        validation_result = validate_environment()
 
         server_status = {
             "server_info": {
-                "name": config.server_name,
-                "version": config.server_version,
-                "host": config.server_host,
-                "port": config.server_port,
-                "ready": server.is_ready(),
-                "client_initialized": server._client_initialized
+                "name": server_info["server_name"],
+                "version": server_info["server_version"],
+                "host": os.getenv("MCP_SERVER_HOST", "localhost"),
+                "port": get_env_int("MCP_SERVER_PORT", 5100),
+                "ready": True,  # Simplified - assume ready if we can get server info
+                "client_initialized": True  # Simplified
             },
             "configuration": {
-                "valid": config.is_valid(),
-                "environment": "development" if config.development_mode else "production",
-                "debug_mode": config.debug_mode,
-                "has_api_key": bool(config.firecrawl_api_key),
-                "has_llm_provider": config.has_llm_provider(),
-                "preferred_llm": config.get_llm_provider()
+                "valid": validation_result["valid"],
+                "environment": "development" if server_info["development_mode"] else "production",
+                "debug_mode": server_info["debug_mode"],
+                "has_api_key": server_info["api_key_configured"],
+                "has_llm_provider": bool(os.getenv("OPENAI_API_KEY") or os.getenv("OLLAMA_BASE_URL")),
+                "preferred_llm": "openai" if os.getenv("OPENAI_API_KEY") else ("ollama" if os.getenv("OLLAMA_BASE_URL") else "none")
             },
             "registered_components": {
                 "tools": {
-                    "count": len(server._registered_tools),
-                    "names": server._registered_tools.copy()
+                    "count": 0,  # Simplified - not tracking in this backup version
+                    "names": []
                 },
                 "resources": {
-                    "count": len(server._registered_resources),
-                    "names": server._registered_resources.copy()
+                    "count": 0,  # Simplified - not tracking in this backup version
+                    "names": []
                 },
                 "prompts": {
-                    "count": len(server._registered_prompts),
-                    "names": server._registered_prompts.copy()
+                    "count": 0,  # Simplified - not tracking in this backup version
+                    "names": []
                 }
             },
             "features": {
-                "auth_enabled": config.auth_enabled,
-                "rate_limiting": config.rate_limit_enabled,
-                "caching": config.cache_enabled,
-                "vector_search": config.vector_search_enabled,
-                "metrics": config.enable_metrics,
-                "health_checks": config.enable_health_checks
+                "auth_enabled": get_env_bool("AUTH_ENABLED"),
+                "rate_limiting": get_env_bool("RATE_LIMIT_ENABLED"),
+                "caching": get_env_bool("CACHE_ENABLED"),
+                "vector_search": get_env_bool("VECTOR_SEARCH_ENABLED"),
+                "metrics": get_env_bool("ENABLE_METRICS"),
+                "health_checks": get_env_bool("ENABLE_HEALTH_CHECKS")
             },
             "client_status": {
                 "connected": False,
@@ -496,10 +510,10 @@ async def get_server_status(ctx: Context) -> dict[str, Any]:
         # Overall health assessment
         health_score = 0
         health_checks = {
-            "server_ready": server.is_ready(),
-            "config_valid": config.is_valid(),
+            "server_ready": True,  # Simplified - assume ready
+            "config_valid": validation_result["valid"],
             "client_connected": server_status["client_status"]["connected"],
-            "has_api_key": bool(config.firecrawl_api_key)
+            "has_api_key": server_info["api_key_configured"]
         }
 
         health_score = sum(health_checks.values())
@@ -510,7 +524,7 @@ async def get_server_status(ctx: Context) -> dict[str, Any]:
             "percentage": round((health_score / total_checks) * 100, 2),
             "status": "healthy" if health_score == total_checks else "degraded" if health_score >= total_checks * 0.5 else "unhealthy",
             "checks": health_checks,
-            "timestamp": config.get_current_timestamp()
+            "timestamp": datetime.now(UTC).isoformat()
         }
 
         await ctx.info("Server status retrieved successfully")
@@ -526,15 +540,13 @@ async def get_server_status(ctx: Context) -> dict[str, Any]:
 async def get_usage_statistics(ctx: Context) -> dict[str, Any]:
     """
     Get usage statistics and performance metrics.
-    
+
     Returns:
         Dictionary containing operation counts, performance metrics,
         and usage patterns. Note: This is a basic implementation;
         production deployments would integrate with proper metrics systems.
     """
     try:
-        config = load_config()
-
         # Basic usage statistics (placeholder implementation)
         # In production, this would integrate with metrics collection systems
         usage_stats = {
@@ -568,21 +580,21 @@ async def get_usage_statistics(ctx: Context) -> dict[str, Any]:
                 "retry_count": 0
             },
             "rate_limiting": {
-                "enabled": config.rate_limit_enabled,
-                "requests_per_minute_limit": config.rate_limit_requests_per_minute,
-                "requests_per_hour_limit": config.rate_limit_requests_per_hour,
+                "enabled": get_env_bool("RATE_LIMIT_ENABLED"),
+                "requests_per_minute_limit": get_env_int("RATE_LIMIT_REQUESTS_PER_MINUTE", 60),
+                "requests_per_hour_limit": get_env_int("RATE_LIMIT_REQUESTS_PER_HOUR", 1000),
                 "current_minute_count": 0,
                 "current_hour_count": 0,
                 "rate_limited_requests": 0
             },
             "cache": {
-                "enabled": config.cache_enabled,
+                "enabled": get_env_bool("CACHE_ENABLED"),
                 "hit_count": 0,
                 "miss_count": 0,
                 "hit_ratio": 0.0,
                 "eviction_count": 0,
                 "current_size": 0,
-                "max_size": config.cache_max_size
+                "max_size": get_env_int("CACHE_MAX_SIZE", 1000)
             }
         }
 
@@ -590,9 +602,9 @@ async def get_usage_statistics(ctx: Context) -> dict[str, Any]:
         usage_stats["metadata"] = {
             "collection_method": "basic_implementation",
             "note": "This is a basic usage statistics implementation. Production deployments should integrate with proper metrics collection systems like Prometheus, StatsD, or custom analytics.",
-            "timestamp": config.get_current_timestamp(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "session_id": "static",  # Would be unique per session
-            "version": config.server_version
+            "version": get_server_info()["server_version"]
         }
 
         await ctx.info("Usage statistics retrieved successfully")
@@ -608,15 +620,13 @@ async def get_usage_statistics(ctx: Context) -> dict[str, Any]:
 async def get_active_operations(ctx: Context) -> dict[str, Any]:
     """
     Get information about currently active operations.
-    
+
     Returns:
         Dictionary containing active batch operations, crawl jobs,
         and other background tasks. Note: This is a basic implementation;
         production deployments would integrate with job tracking systems.
     """
     try:
-        config = load_config()
-
         # Basic active operations tracking (placeholder implementation)
         # In production, this would integrate with job queue systems
         active_operations = {
@@ -642,7 +652,7 @@ async def get_active_operations(ctx: Context) -> dict[str, Any]:
             "api_requests": {
                 "in_progress": 0,
                 "queued": 0,
-                "concurrent_limit": config.rate_limit_burst_size,
+                "concurrent_limit": get_env_int("RATE_LIMIT_BURST_SIZE", 10),
                 "average_duration_ms": 0
             },
             "system_tasks": {
@@ -654,7 +664,7 @@ async def get_active_operations(ctx: Context) -> dict[str, Any]:
         }
 
         # Mock some data for demonstration (in production this would be real data)
-        if config.development_mode:
+        if get_env_bool("DEVELOPMENT_MODE"):
             active_operations["demo_note"] = "This is demonstration data. In production, this would show real active operations from job tracking systems."
 
         # Add queue status information
@@ -669,9 +679,9 @@ async def get_active_operations(ctx: Context) -> dict[str, Any]:
         active_operations["metadata"] = {
             "collection_method": "basic_implementation",
             "note": "This is a basic active operations tracking implementation. Production deployments should integrate with proper job queue systems like Celery, RQ, or cloud job services.",
-            "timestamp": config.get_current_timestamp(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "refresh_interval_seconds": 30,
-            "last_updated": config.get_current_timestamp()
+            "last_updated": datetime.now(UTC).isoformat()
         }
 
         await ctx.info("Active operations retrieved successfully")
@@ -687,16 +697,14 @@ async def get_active_operations(ctx: Context) -> dict[str, Any]:
 async def get_recent_logs(ctx: Context) -> dict[str, Any]:
     """
     Get recent log entries and error summaries.
-    
+
     Returns:
         Dictionary containing recent log entries, error summaries,
         and logging system status for troubleshooting purposes.
     """
     try:
-        config = load_config()
-
         # Initialize log data structure
-        log_data = {
+        log_data: dict[str, Any] = {
             "log_files": {
                 "main_log": None,
                 "middleware_log": None,
@@ -725,23 +733,23 @@ async def get_recent_logs(ctx: Context) -> dict[str, Any]:
         }
 
         # Check for log files in the logs directory
-        logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "logs")
+        logs_dir = Path(__file__).parent.parent.parent / "logs"
 
-        if os.path.exists(logs_dir):
+        if logs_dir.exists():
             # Check main log file
-            main_log_path = os.path.join(logs_dir, "firecrawler.log")
-            if os.path.exists(main_log_path):
+            main_log_path = logs_dir / "firecrawler.log"
+            if main_log_path.exists():
                 log_data["log_system_status"]["main_log_exists"] = True
-                log_data["log_system_status"]["main_log_size_mb"] = round(os.path.getsize(main_log_path) / (1024 * 1024), 2)
-                log_data["log_files"]["main_log"] = main_log_path
+                log_data["log_system_status"]["main_log_size_mb"] = round(main_log_path.stat().st_size / (1024 * 1024), 2)
+                log_data["log_files"]["main_log"] = str(main_log_path)
 
                 # Read recent entries from main log (last 50 lines)
                 try:
-                    with open(main_log_path, encoding='utf-8') as f:
+                    with main_log_path.open(encoding='utf-8') as f:
                         lines = f.readlines()[-50:]  # Last 50 lines
 
-                    for line in lines:
-                        line = line.strip()
+                    for raw_line in lines:
+                        line = raw_line.strip()
                         if not line:
                             continue
 
@@ -759,18 +767,18 @@ async def get_recent_logs(ctx: Context) -> dict[str, Any]:
                     log_data["log_files"]["main_log_error"] = str(read_error)
 
             # Check middleware log file
-            middleware_log_path = os.path.join(logs_dir, "middleware.log")
-            if os.path.exists(middleware_log_path):
+            middleware_log_path = logs_dir / "middleware.log"
+            if middleware_log_path.exists():
                 log_data["log_system_status"]["middleware_log_exists"] = True
-                log_data["log_system_status"]["middleware_log_size_mb"] = round(os.path.getsize(middleware_log_path) / (1024 * 1024), 2)
-                log_data["log_files"]["middleware_log"] = middleware_log_path
+                log_data["log_system_status"]["middleware_log_size_mb"] = round(middleware_log_path.stat().st_size / (1024 * 1024), 2)
+                log_data["log_files"]["middleware_log"] = str(middleware_log_path)
 
         # Calculate error summary
         log_data["error_summary"]["total_errors"] = len(log_data["recent_entries"]["error"]) + len(log_data["recent_entries"]["critical"])
 
         # Extract unique error patterns (basic implementation)
         error_messages = log_data["recent_entries"]["error"] + log_data["recent_entries"]["critical"]
-        error_patterns = {}
+        error_patterns: dict[str, int] = {}
         for error in error_messages:
             # Extract error message after " - ERROR - " or " - CRITICAL - "
             if " - ERROR - " in error:
@@ -791,9 +799,9 @@ async def get_recent_logs(ctx: Context) -> dict[str, Any]:
         ]
 
         # Check disk space for logs directory
-        if os.path.exists(logs_dir):
+        if logs_dir.exists():
             try:
-                statvfs = os.statvfs(logs_dir)
+                statvfs = os.statvfs(str(logs_dir))
                 free_space_gb = (statvfs.f_frsize * statvfs.f_bavail) / (1024**3)
                 log_data["log_system_status"]["disk_space_available"] = free_space_gb > 1.0  # At least 1GB free
                 log_data["log_system_status"]["free_space_gb"] = round(free_space_gb, 2)
@@ -802,12 +810,12 @@ async def get_recent_logs(ctx: Context) -> dict[str, Any]:
 
         # Add metadata
         log_data["metadata"] = {
-            "logs_directory": logs_dir,
-            "log_level": config.log_level,
+            "logs_directory": str(logs_dir),
+            "log_level": os.getenv("LOG_LEVEL", "INFO"),
             "log_rotation_enabled": True,
-            "max_log_size_mb": config.log_max_size // (1024 * 1024),
-            "backup_count": config.log_backup_count,
-            "timestamp": config.get_current_timestamp(),
+            "max_log_size_mb": get_env_int("LOG_MAX_SIZE", 10485760) // (1024 * 1024),
+            "backup_count": get_env_int("LOG_BACKUP_COUNT", 3),
+            "timestamp": datetime.now(UTC).isoformat(),
             "entries_limit": "Last 50 lines per log file"
         }
 
@@ -825,7 +833,7 @@ async def get_recent_logs(ctx: Context) -> dict[str, Any]:
 def register_resources(server_mcp: FastMCP) -> None:
     """
     Register all resources with the provided FastMCP server instance.
-    
+
     Args:
         server_mcp: The FastMCP server instance to register resources with
     """

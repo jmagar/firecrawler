@@ -41,6 +41,32 @@ interface DocumentMetadata {
     is_code_file: boolean;
     programming_language?: string;
   };
+  quality_metrics?: ContentQualityMetrics; // Phase 1 addition
+}
+
+/**
+ * Content quality scoring interfaces for Phase 1 noise reduction
+ */
+interface ContentQualityMetrics {
+  overall_score: number; // 0-1 scale, higher = better quality
+  content_density: number; // content words per total words
+  navigation_ratio: number; // navigation elements to content ratio
+  noise_indicators: string[]; // detected noise patterns
+  readability_score?: number; // Flesch reading ease (optional)
+  structural_quality: number; // HTML structure quality score
+}
+
+interface ContentDensityAnalysis {
+  total_words: number;
+  content_words: number;
+  navigation_words: number;
+  density_score: number; // 0-1 scale
+  quality_indicators: {
+    has_main_content: boolean;
+    has_headings: boolean;
+    paragraph_density: number;
+    link_density: number;
+  };
 }
 
 /**
@@ -561,6 +587,171 @@ function countWords(content: string): number {
 }
 
 /**
+ * Analyzes content density and quality metrics for noise reduction
+ */
+function analyzeContentDensity(
+  content: string,
+  rawHtml?: string,
+): ContentDensityAnalysis {
+  if (!content) {
+    return {
+      total_words: 0,
+      content_words: 0,
+      navigation_words: 0,
+      density_score: 0,
+      quality_indicators: {
+        has_main_content: false,
+        has_headings: false,
+        paragraph_density: 0,
+        link_density: 0,
+      },
+    };
+  }
+
+  const totalWords = countWords(content);
+
+  // Detect navigation patterns from markdown-cleanup
+  const navigationPatterns = [
+    /\bSkip to [Cc]ontent\b/gi,
+    /\bSearch\.{3,}\b/gi,
+    /\bCtrl\s*\+?\s*K\b/gi,
+    /\bNavigation\b/gi,
+    /\bTable of [Cc]ontents\b/gi,
+    /\bPrevious\s*\|\s*Next\b/gi,
+    /\bSelect language\b/gi,
+    /\bToggle navigation\b/gi,
+    /\bMenu\b/gi,
+  ];
+
+  let navigationWords = 0;
+  for (const pattern of navigationPatterns) {
+    const matches = content.match(pattern);
+    if (matches) {
+      navigationWords += matches.reduce(
+        (sum, match) => sum + countWords(match),
+        0,
+      );
+    }
+  }
+
+  const contentWords = Math.max(0, totalWords - navigationWords);
+  const densityScore = totalWords > 0 ? contentWords / totalWords : 0;
+
+  // Quality indicators
+  const hasHeadings = /^#{1,6}\s+.+$/m.test(content);
+  const hasMainContent = content.length > 200 && densityScore > 0.3;
+
+  // Calculate paragraph density (paragraphs vs total content)
+  const paragraphCount = (content.match(/\n\s*\n/g) || []).length + 1;
+  const paragraphDensity =
+    totalWords > 0 ? paragraphCount / (totalWords / 50) : 0; // ~50 words per paragraph ideal
+
+  // Calculate link density
+  const linkMatches = (content.match(/\[([^\]]+)\]\([^)]+\)/g) ||
+    []) as string[];
+  const linkWords = linkMatches.reduce((sum, link) => {
+    const linkText = link.match(/\[([^\]]+)\]/)?.[1] || "";
+    return sum + countWords(linkText);
+  }, 0);
+  const linkDensity = contentWords > 0 ? linkWords / contentWords : 0;
+
+  return {
+    total_words: totalWords,
+    content_words: contentWords,
+    navigation_words: navigationWords,
+    density_score: Math.min(1, Math.max(0, densityScore)),
+    quality_indicators: {
+      has_main_content: hasMainContent,
+      has_headings: hasHeadings,
+      paragraph_density: Math.min(1, Math.max(0, paragraphDensity)),
+      link_density: Math.min(1, Math.max(0, linkDensity)),
+    },
+  };
+}
+
+/**
+ * Calculates overall content quality score based on multiple factors
+ */
+function calculateContentQuality(
+  content: string,
+  url: string,
+  rawHtml?: string,
+): ContentQualityMetrics {
+  const densityAnalysis = analyzeContentDensity(content, rawHtml);
+  const noiseIndicators: string[] = [];
+
+  // Base quality from content density
+  let qualityScore = densityAnalysis.density_score;
+
+  // Boost for good structural indicators
+  if (densityAnalysis.quality_indicators.has_main_content) {
+    qualityScore += 0.2;
+    noiseIndicators.push("has_main_content");
+  }
+
+  if (densityAnalysis.quality_indicators.has_headings) {
+    qualityScore += 0.1;
+  }
+
+  // Penalize high link density (likely navigation/spam)
+  if (densityAnalysis.quality_indicators.link_density > 0.3) {
+    qualityScore -= 0.15;
+    noiseIndicators.push("high_link_density");
+  }
+
+  // Penalize low paragraph density (likely fragmented content)
+  if (densityAnalysis.quality_indicators.paragraph_density < 0.1) {
+    qualityScore -= 0.1;
+    noiseIndicators.push("low_paragraph_density");
+  }
+
+  // Navigation ratio scoring
+  const navigationRatio =
+    densityAnalysis.total_words > 0
+      ? densityAnalysis.navigation_words / densityAnalysis.total_words
+      : 0;
+
+  if (navigationRatio > 0.2) {
+    qualityScore -= 0.2;
+    noiseIndicators.push("high_navigation_ratio");
+  }
+
+  // Structural quality based on content organization
+  let structuralQuality = 0.5; // baseline
+
+  if (densityAnalysis.quality_indicators.has_headings) structuralQuality += 0.2;
+  if (densityAnalysis.quality_indicators.has_main_content)
+    structuralQuality += 0.2;
+  if (densityAnalysis.quality_indicators.paragraph_density > 0.2)
+    structuralQuality += 0.1;
+
+  // Domain-based quality adjustments
+  try {
+    const urlObj = new URL(url);
+    if (
+      urlObj.hostname.includes("docs") ||
+      urlObj.hostname.includes("documentation")
+    ) {
+      qualityScore += 0.05; // Documentation sites typically have better content
+    }
+  } catch {
+    // Invalid URL, no adjustment
+  }
+
+  // Clamp final score
+  qualityScore = Math.min(1, Math.max(0, qualityScore));
+  structuralQuality = Math.min(1, Math.max(0, structuralQuality));
+
+  return {
+    overall_score: qualityScore,
+    content_density: densityAnalysis.density_score,
+    navigation_ratio: navigationRatio,
+    noise_indicators: noiseIndicators,
+    structural_quality: structuralQuality,
+  };
+}
+
+/**
  * Determines if a file is a code file based on extension and content
  */
 function isCodeFile(filePath?: string, content?: string): boolean {
@@ -664,11 +855,17 @@ export function extractDocumentMetadata(
   url: string,
   content?: string,
   title?: string,
+  rawHtml?: string, // Added for quality analysis
 ): DocumentMetadata {
   const githubMetadata = extractGitHubMetadata(url);
   const contentClassification = classifyContentType(url, content);
   const domainMetadata = extractDomainMetadata(url);
   const wordCount = content ? countWords(content) : 0;
+
+  // Phase 1: Calculate content quality metrics
+  const qualityMetrics = content
+    ? calculateContentQuality(content, url, rawHtml)
+    : undefined;
 
   let fileMetadata: DocumentMetadata["file_metadata"];
 
@@ -744,6 +941,7 @@ export function extractDocumentMetadata(
     content_classification: contentClassification,
     domain_metadata: domainMetadata,
     file_metadata: fileMetadata,
+    quality_metrics: qualityMetrics, // Phase 1 addition
   };
 }
 
@@ -766,5 +964,11 @@ export function formatMetadataForStorage(
     documentation_type: metadata.domain_metadata.documentation_type,
     is_code_file: metadata.file_metadata?.is_code_file || false,
     programming_language: metadata.file_metadata?.programming_language,
+
+    // Phase 1: Content quality metrics for improved ranking
+    quality_score: metadata.quality_metrics?.overall_score,
+    content_density: metadata.quality_metrics?.content_density,
+    navigation_ratio: metadata.quality_metrics?.navigation_ratio,
+    structural_quality: metadata.quality_metrics?.structural_quality,
   };
 }

@@ -44,7 +44,7 @@ async def _handle_extract_start(
 ) -> ExtractResponse:
     """
     Handle extraction initiation mode.
-    
+
     Args:
         ctx: MCP context for logging and progress reporting
         urls: List of URLs to extract data from
@@ -58,10 +58,10 @@ async def _handle_extract_start(
         ignore_invalid_urls: Whether to ignore invalid URLs and continue processing
         integration: Integration identifier for custom processing
         agent: AI agent configuration for extraction processing
-        
+
     Returns:
         ExtractResponse: The extraction job response with structured data or job ID
-        
+
     Raises:
         ToolError: If extraction fails or configuration is invalid
     """
@@ -114,11 +114,8 @@ async def _handle_extract_start(
 
         # Handle scrape_options conversion
         if scrape_options:
-            if isinstance(scrape_options, dict):
-                # Convert dict to ScrapeOptions for SDK
-                extract_kwargs['scrape_options'] = ScrapeOptions(**scrape_options) if scrape_options else None
-            else:
-                extract_kwargs['scrape_options'] = scrape_options
+            # Convert dict to ScrapeOptions for SDK
+            extract_kwargs['scrape_options'] = ScrapeOptions(**scrape_options)
 
         # Remove None values
         extract_kwargs = {k: v for k, v in extract_kwargs.items() if v is not None}
@@ -156,7 +153,7 @@ async def _handle_extract_start(
     except FirecrawlError as e:
         error_msg = f"Firecrawl API error during extraction: {e}"
         await ctx.error(error_msg)
-        raise handle_firecrawl_error(e, "extract")
+        raise handle_firecrawl_error(e, "extract") from e
 
     except Exception as e:
         error_msg = f"Unexpected error during extraction: {e}"
@@ -170,18 +167,18 @@ async def _handle_extract_status(
 ) -> dict[str, Any]:
     """
     Handle extraction status checking mode - STATUS ONLY, NO DATA.
-    
+
     This function returns only extraction progress information and brief summaries.
     It does NOT return actual extracted data. Use vector search or other tools
     to retrieve actual extracted data.
-    
+
     Args:
         ctx: MCP context for logging and progress reporting
         job_id: Extraction job ID
-        
+
     Returns:
         dict[str, Any]: Status information with concise summary, NO actual data
-        
+
     Raises:
         ToolError: If status check fails or job ID is invalid
     """
@@ -246,7 +243,7 @@ async def _handle_extract_status(
     except FirecrawlError as e:
         error_msg = f"Firecrawl API error during extraction status check: {e}"
         await ctx.error(error_msg)
-        raise handle_firecrawl_error(e, "extract_status")
+        raise handle_firecrawl_error(e, "extract_status") from e
 
     except Exception as e:
         error_msg = f"Unexpected error during extraction status check: {e}"
@@ -330,11 +327,11 @@ def register_extract_tools(mcp: FastMCP) -> None:
     ) -> ExtractResponse | dict[str, Any]:
         """
         Extract structured data from URLs or check extraction job status with automatic mode detection.
-        
+
         This unified tool automatically detects the operation mode based on parameters:
         - If job_id provided: Status checking mode for existing extraction jobs (STATUS ONLY, NO DATA)
         - If urls provided: Extraction initiation mode to start new extraction job
-        
+
         Args:
             ctx: MCP context for logging and progress reporting
             urls: List of URLs to extract data from (for starting new extraction)
@@ -349,11 +346,11 @@ def register_extract_tools(mcp: FastMCP) -> None:
             ignore_invalid_urls: Whether to ignore invalid URLs and continue processing
             integration: Integration identifier for custom processing
             agent: AI agent configuration for extraction processing
-            
+
         Returns:
             Union[ExtractResponse, dict[str, Any]]: ExtractResponse for extraction initiation,
                 status summary dict for status checking (NO actual data)
-            
+
         Raises:
             ToolError: If operation fails or configuration is invalid
         """
