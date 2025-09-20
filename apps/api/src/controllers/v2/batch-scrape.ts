@@ -24,6 +24,11 @@ import { logger as _logger } from "../../lib/logger";
 import { BLOCKLISTED_URL_MESSAGE } from "../../lib/strings";
 import { isUrlBlocked } from "../../scraper/WebScraper/utils/blocklist";
 import { checkPermissions } from "../../lib/permissions";
+import {
+  shouldExcludeUrl,
+  isLanguageSupported,
+  getSupportedLanguages,
+} from "../../lib/language-filter.js";
 
 export async function batchScrapeController(
   req: RequestWithAuth<{}, BatchScrapeResponse, BatchScrapeRequest>,
@@ -71,6 +76,30 @@ export async function batchScrapeController(
       try {
         const nu = urlSchema.parse(u);
         if (!isUrlBlocked(nu, req.acuc?.flags ?? null)) {
+          // Apply automatic language filtering if DEFAULT_CRAWL_LANGUAGE is set
+          const rawLang = process.env.DEFAULT_CRAWL_LANGUAGE ?? "";
+          const defaultLanguage = rawLang.trim().toLowerCase();
+          if (defaultLanguage && defaultLanguage !== "all") {
+            // Extract base language by splitting on '-' or '_' and taking first segment
+            const baseLang = defaultLanguage.split(/[-_]/)[0];
+            // Validate the language code and warn if unsupported
+            if (!isLanguageSupported(baseLang)) {
+              logger.warn("Invalid DEFAULT_CRAWL_LANGUAGE configuration", {
+                invalidValue: defaultLanguage,
+                baseLang,
+                supportedLanguages: getSupportedLanguages(),
+              });
+            } else if (shouldExcludeUrl(nu, baseLang)) {
+              invalidURLs.push(u);
+              logger.debug("URL excluded by language filtering", {
+                url: nu,
+                allowedLanguage: defaultLanguage,
+                baseLang,
+              });
+              continue;
+            }
+          }
+
           urls.push(nu);
           unnormalizedURLs.push(u);
         } else {

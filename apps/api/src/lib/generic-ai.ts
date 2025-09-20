@@ -20,9 +20,16 @@ type Provider =
   | "deepinfra"
   | "vertex"
   | "tei";
-const defaultProvider: Provider = process.env.TEI_URL
+
+type TextProvider = Exclude<Provider, "tei">;
+type EmbeddingProvider = "tei" | "openai" | "ollama";
+const defaultEmbeddingProvider: EmbeddingProvider = process.env.TEI_URL
   ? "tei"
   : process.env.OLLAMA_BASE_URL
+    ? "ollama"
+    : "openai";
+
+const defaultTextProvider: TextProvider = process.env.OLLAMA_BASE_URL
   ? "ollama"
   : "openai";
 
@@ -43,18 +50,21 @@ const providerList: Record<Provider, any> = {
   fireworks, //FIREWORKS_API_KEY
   deepinfra, //DEEPINFRA_API_KEY
   vertex: createVertex({
-    project: "firecrawl",
-    //https://github.com/vercel/ai/issues/6644 bug
-    baseURL:
-      "https://aiplatform.googleapis.com/v1/projects/firecrawl/locations/global/publishers/google",
-    location: "global",
+    project: process.env.VERTEX_PROJECT || "firecrawl",
+    // https://github.com/vercel/ai/issues/6644 bug
+    baseURL: `https://aiplatform.googleapis.com/v1/projects/${process.env.VERTEX_PROJECT || "firecrawl"}/locations/${process.env.VERTEX_LOCATION || "global"}/publishers/google`,
+    location: process.env.VERTEX_LOCATION || "global",
     googleAuthOptions: process.env.VERTEX_CREDENTIALS
       ? {
-          credentials: JSON.parse(atob(process.env.VERTEX_CREDENTIALS)),
+          credentials: JSON.parse(
+            Buffer.from(process.env.VERTEX_CREDENTIALS!, "base64").toString(
+              "utf8",
+            ),
+          ),
         }
-      : {
-          keyFile: "./gke-key.json",
-        },
+      : process.env.GOOGLE_APPLICATION_CREDENTIALS
+        ? { keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS }
+        : {}, // rely on ADC (workload identity / metadata server)
   }),
   tei: createTEI({
     baseURL: process.env.TEI_URL || "http://localhost:8080",
@@ -62,10 +72,10 @@ const providerList: Record<Provider, any> = {
   }),
 };
 
-export function getModel(name: string, provider: Provider = defaultProvider) {
-  if (name === "gemini-2.5-pro") {
-    name = "gemini-2.5-pro";
-  }
+export function getModel(
+  name: string,
+  provider: TextProvider = defaultTextProvider,
+) {
   return process.env.MODEL_NAME
     ? providerList[provider](process.env.MODEL_NAME)
     : providerList[provider](name);
@@ -73,8 +83,15 @@ export function getModel(name: string, provider: Provider = defaultProvider) {
 
 export function getEmbeddingModel(
   name: string,
-  provider: Provider = defaultProvider,
+  provider: EmbeddingProvider = defaultEmbeddingProvider,
 ) {
+  if (typeof (providerList as any)[provider]?.embedding !== "function") {
+    const supported = ["tei", "openai", "ollama"].join(", ");
+    throw new Error(
+      `Embeddings not supported for provider: ${provider}. Supported embedding providers: ${supported}.` +
+        ` Check env (TEI_URL, OLLAMA_BASE_URL, OPENAI_API_KEY).`,
+    );
+  }
   return process.env.MODEL_EMBEDDING_NAME
     ? providerList[provider].embedding(process.env.MODEL_EMBEDDING_NAME)
     : providerList[provider].embedding(name);

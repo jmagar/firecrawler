@@ -1,24 +1,45 @@
 import { Pool } from "pg";
 import { logger } from "../lib/logger";
 import { Document } from "../controllers/v2/types";
+import {
+  isVectorStorageEnabled,
+  getVectorDimension,
+} from "../lib/embedding-utils";
+import { DEFAULT_MIN_SIMILARITY_THRESHOLD } from "../lib/similarity";
 
-// Use existing NuQ database connection
-const nuqPool = new Pool({
-  connectionString: process.env.NUQ_DATABASE_URL,
-  application_name: "vector_storage",
-});
+// Lazy-initialized pool for vector storage
+let nuqPool: Pool | undefined;
 
-nuqPool.on("error", err =>
-  logger.error("Error in Vector Storage idle client", { err, module: "vector_storage" }),
-);
+function getPool(): Pool {
+  if (!isVectorStorageEnabled()) {
+    throw new Error("Vector storage is disabled");
+  }
 
-// Vector storage configuration
-const VECTOR_DIMENSION = parseInt(process.env.VECTOR_DIMENSION || "384", 10);
-const ENABLE_VECTOR_STORAGE = process.env.ENABLE_VECTOR_STORAGE === "true";
-const MIN_SIMILARITY_THRESHOLD = parseFloat(process.env.MIN_SIMILARITY_THRESHOLD || "0.7");
+  if (!nuqPool) {
+    nuqPool = new Pool({
+      connectionString: process.env.NUQ_DATABASE_URL,
+      application_name: "vector_storage",
+    });
+
+    nuqPool.on("error", err =>
+      logger.error("Error in Vector Storage idle client", {
+        err,
+        module: "vector_storage",
+      }),
+    );
+  }
+
+  return nuqPool;
+}
+
+// Vector storage configuration (dimension from shared utility)
+
+const VECTOR_DIMENSION: number | undefined = isVectorStorageEnabled()
+  ? getVectorDimension()
+  : undefined;
 
 // Types for vector operations
-export interface VectorMetadata {
+interface VectorMetadata {
   title?: string;
   url?: string;
   domain?: string;
@@ -30,6 +51,12 @@ export interface VectorMetadata {
   created_at?: string;
   token_count?: number;
   description?: string;
+
+  // Phase 1: Content quality metrics for improved ranking
+  quality_score?: number;
+  content_density?: number;
+  navigation_ratio?: number;
+  structural_quality?: number;
 }
 
 export interface VectorSearchOptions {
@@ -37,6 +64,7 @@ export interface VectorSearchOptions {
   minSimilarity?: number;
   domain?: string;
   repositoryName?: string;
+  repositoryOrg?: string;
   contentType?: string;
   dateRange?: {
     start?: string;
@@ -52,7 +80,7 @@ export interface VectorSearchResult {
   document?: Document;
 }
 
-export interface VectorStorageStats {
+interface VectorStorageStats {
   totalVectors: number;
   avgSimilarity: number;
   uniqueDomains: number;
@@ -62,12 +90,14 @@ export interface VectorStorageStats {
 /**
  * Extracts GitHub repository information from URL
  */
-export function extractGitHubInfo(url: string): {
+function extractGitHubInfo(url: string): {
   org?: string;
   repo?: string;
   filePath?: string;
 } {
-  const githubMatch = url.match(/github\.com\/([^\/]+)\/([^\/]+)(?:\/(?:blob|tree)\/[^\/]+\/(.*)?)?/);
+  const githubMatch = url.match(
+    /github\.com\/([^\/]+)\/([^\/]+)(?:\/(?:blob|tree)\/[^\/]+\/(.*)?)?/,
+  );
   if (!githubMatch) return {};
 
   const [, org, repo, filePath] = githubMatch;
@@ -81,7 +111,11 @@ export function extractGitHubInfo(url: string): {
 /**
  * Detects content type from URL and title
  */
-export function detectContentType(url: string, title?: string, content?: string): string {
+function detectContentType(
+  url: string,
+  title?: string,
+  content?: string,
+): string {
   const urlLower = url.toLowerCase();
   const titleLower = title?.toLowerCase() || "";
   const contentLower = content?.substring(0, 1000).toLowerCase() || "";
@@ -101,7 +135,7 @@ export function detectContentType(url: string, title?: string, content?: string)
   if (
     urlLower.includes("readme") ||
     titleLower.includes("readme") ||
-    urlLower.endsWith("/") && titleLower.includes("readme")
+    (urlLower.endsWith("/") && titleLower.includes("readme"))
   ) {
     return "readme";
   }
@@ -150,7 +184,7 @@ export function detectContentType(url: string, title?: string, content?: string)
 /**
  * Extracts domain from URL
  */
-export function extractDomain(url: string): string {
+function extractDomain(url: string): string {
   try {
     return new URL(url).hostname;
   } catch {
@@ -161,14 +195,18 @@ export function extractDomain(url: string): string {
 /**
  * Generates metadata from document
  */
-export function generateMetadata(document: Document): VectorMetadata {
-  const url = document.url || document.metadata?.url || "";
+function generateMetadata(document: Document): VectorMetadata {
+  const url =
+    document.url ||
+    document.metadata?.sourceURL ||
+    document.metadata?.url ||
+    "";
   const domain = extractDomain(url);
   const githubInfo = extractGitHubInfo(url);
   const contentType = detectContentType(
-    url, 
+    url,
     document.title || document.metadata?.title,
-    document.markdown
+    document.markdown,
   );
 
   // Estimate token count (rough approximation: 4 characters per token)
@@ -179,8 +217,8 @@ export function generateMetadata(document: Document): VectorMetadata {
     title: document.title || document.metadata?.title,
     url,
     domain,
-    repository_name: githubInfo.repo,
-    repository_org: githubInfo.org,
+    repository_name: githubInfo.repo?.toLowerCase(),
+    repository_org: githubInfo.org?.toLowerCase(),
     file_path: githubInfo.filePath,
     content_type: contentType,
     language: document.metadata?.language,
@@ -199,16 +237,21 @@ export async function storeDocumentVector(
   document: Document,
   _logger = logger,
 ): Promise<boolean> {
-  if (!ENABLE_VECTOR_STORAGE) {
-    _logger.debug("Vector storage disabled, skipping", { 
-      module: "vector_storage", 
-      jobId 
+  if (!isVectorStorageEnabled()) {
+    _logger.debug("Vector storage disabled, skipping", {
+      module: "vector_storage",
+      jobId,
     });
     return true;
   }
 
   if (!embedding || embedding.length !== VECTOR_DIMENSION) {
-    throw new Error(`Invalid embedding dimension: expected ${VECTOR_DIMENSION}, got ${embedding?.length || 0}`);
+    throw new Error(
+      `Invalid embedding dimension: expected ${VECTOR_DIMENSION}, got ${embedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly (e.g., 1024 for Qwen/Qwen3-Embedding-0.6B).`,
+    );
+  }
+  if (!embedding.every(n => Number.isFinite(n))) {
+    throw new Error("Embedding contains non-finite numbers (NaN/Infinity).");
   }
 
   const start = Date.now();
@@ -232,7 +275,7 @@ export async function storeDocumentVector(
         created_at = EXCLUDED.created_at
     `;
 
-    await nuqPool.query(query, [
+    await getPool().query(query, [
       jobId,
       `[${embedding.join(",")}]`, // Convert array to vector format
       JSON.stringify(metadata),
@@ -272,23 +315,31 @@ export async function searchSimilarVectors(
   options: VectorSearchOptions = {},
   _logger = logger,
 ): Promise<VectorSearchResult[]> {
-  if (!ENABLE_VECTOR_STORAGE) {
-    _logger.debug("Vector storage disabled, returning empty results", { 
-      module: "vector_storage" 
+  if (!isVectorStorageEnabled()) {
+    _logger.debug("Vector storage disabled, returning empty results", {
+      module: "vector_storage",
     });
     return [];
   }
 
   if (!queryEmbedding || queryEmbedding.length !== VECTOR_DIMENSION) {
-    throw new Error(`Invalid query embedding dimension: expected ${VECTOR_DIMENSION}, got ${queryEmbedding?.length || 0}`);
+    throw new Error(
+      `Invalid query embedding dimension: expected ${VECTOR_DIMENSION}, got ${queryEmbedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly (e.g., 1024 for Qwen/Qwen3-Embedding-0.6B).`,
+    );
+  }
+  if (!queryEmbedding.every(n => Number.isFinite(n))) {
+    throw new Error(
+      "Query embedding contains non-finite numbers (NaN/Infinity).",
+    );
   }
 
   const start = Date.now();
   const {
     limit = 10,
-    minSimilarity = MIN_SIMILARITY_THRESHOLD,
+    minSimilarity = DEFAULT_MIN_SIMILARITY_THRESHOLD,
     domain,
     repositoryName,
+    repositoryOrg,
     contentType,
     dateRange,
   } = options;
@@ -296,7 +347,11 @@ export async function searchSimilarVectors(
   try {
     // Build dynamic WHERE clause for filtering
     const conditions: string[] = [];
-    const params: any[] = [`[${queryEmbedding.join(",")}]`, minSimilarity, limit];
+    const params: any[] = [
+      `[${queryEmbedding.join(",")}]`,
+      minSimilarity,
+      limit,
+    ];
     let paramIndex = 4;
 
     if (domain) {
@@ -311,6 +366,12 @@ export async function searchSimilarVectors(
       paramIndex++;
     }
 
+    if (repositoryOrg) {
+      conditions.push(`(metadata->>'repository_org') = $${paramIndex}`);
+      params.push(repositoryOrg);
+      paramIndex++;
+    }
+
     if (contentType) {
       conditions.push(`(metadata->>'content_type') = $${paramIndex}`);
       params.push(contentType);
@@ -318,18 +379,23 @@ export async function searchSimilarVectors(
     }
 
     if (dateRange?.start) {
-      conditions.push(`(metadata->>'created_at')::timestamp >= $${paramIndex}::timestamp`);
+      conditions.push(
+        `(metadata->>'created_at')::timestamp >= $${paramIndex}::timestamp`,
+      );
       params.push(dateRange.start);
       paramIndex++;
     }
 
     if (dateRange?.end) {
-      conditions.push(`(metadata->>'created_at')::timestamp <= $${paramIndex}::timestamp`);
+      conditions.push(
+        `(metadata->>'created_at')::timestamp <= $${paramIndex}::timestamp`,
+      );
       params.push(dateRange.end);
       paramIndex++;
     }
 
-    const whereClause = conditions.length > 0 ? `AND ${conditions.join(" AND ")}` : "";
+    const whereClause =
+      conditions.length > 0 ? `AND ${conditions.join(" AND ")}` : "";
 
     const query = `
       SELECT 
@@ -344,7 +410,7 @@ export async function searchSimilarVectors(
       LIMIT $3
     `;
 
-    const result = await nuqPool.query(query, params);
+    const result = await getPool().query(query, params);
 
     const searchResults: VectorSearchResult[] = result.rows.map(row => ({
       jobId: row.job_id,
@@ -377,7 +443,18 @@ export async function searchSimilarVectors(
 /**
  * Retrieves vector storage statistics
  */
-export async function getVectorStorageStats(_logger = logger): Promise<VectorStorageStats> {
+async function getVectorStorageStats(
+  _logger = logger,
+): Promise<VectorStorageStats> {
+  if (!isVectorStorageEnabled()) {
+    return {
+      totalVectors: 0,
+      avgSimilarity: 0,
+      uniqueDomains: 0,
+      uniqueRepositories: 0,
+    };
+  }
+
   const start = Date.now();
 
   try {
@@ -390,7 +467,7 @@ export async function getVectorStorageStats(_logger = logger): Promise<VectorSto
       WHERE metadata->>'repository_name' IS NOT NULL
     `;
 
-    const result = await nuqPool.query(query);
+    const result = await getPool().query(query);
     const row = result.rows[0];
 
     const stats: VectorStorageStats = {
@@ -422,15 +499,23 @@ export async function getVectorStorageStats(_logger = logger): Promise<VectorSto
 /**
  * Deletes a document vector by job ID
  */
-export async function deleteDocumentVector(
+async function deleteDocumentVector(
   jobId: string,
   _logger = logger,
 ): Promise<boolean> {
+  if (!isVectorStorageEnabled()) {
+    _logger.debug("Vector storage disabled, skipping deletion", {
+      module: "vector_storage",
+      jobId,
+    });
+    return true;
+  }
+
   const start = Date.now();
 
   try {
     const query = `DELETE FROM nuq.document_vectors WHERE job_id = $1`;
-    const result = await nuqPool.query(query, [jobId]);
+    const result = await getPool().query(query, [jobId]);
 
     const deleted = (result.rowCount || 0) > 0;
 
@@ -458,18 +543,22 @@ export async function deleteDocumentVector(
 /**
  * Health check for vector storage service
  */
-export async function vectorStorageHealthCheck(): Promise<boolean> {
+async function vectorStorageHealthCheck(): Promise<boolean> {
+  if (!isVectorStorageEnabled()) {
+    return true; // Consider it healthy when disabled
+  }
+
   const start = Date.now();
   try {
     // Check if table exists and is accessible
-    await nuqPool.query("SELECT 1 FROM nuq.document_vectors LIMIT 1");
-    
+    await getPool().query("SELECT 1 FROM nuq.document_vectors LIMIT 1");
+
     logger.info("Vector storage health check passed", {
       module: "vector_storage/metrics",
       method: "vectorStorageHealthCheck",
       duration: Date.now() - start,
     });
-    
+
     return true;
   } catch (error) {
     logger.error("Vector storage health check failed", {
@@ -485,10 +574,17 @@ export async function vectorStorageHealthCheck(): Promise<boolean> {
 /**
  * Batch delete vectors older than specified days
  */
-export async function cleanupOldVectors(
+async function cleanupOldVectors(
   retentionDays: number = 30,
   _logger = logger,
 ): Promise<number> {
+  if (!isVectorStorageEnabled()) {
+    _logger.debug("Vector storage disabled, skipping cleanup", {
+      module: "vector_storage",
+    });
+    return 0;
+  }
+
   const start = Date.now();
 
   try {
@@ -497,7 +593,7 @@ export async function cleanupOldVectors(
       WHERE (metadata->>'created_at')::timestamp < now() - interval '${retentionDays} days'
     `;
 
-    const result = await nuqPool.query(query);
+    const result = await getPool().query(query);
     const deletedCount = result.rowCount || 0;
 
     _logger.info("Vector cleanup completed", {
@@ -523,7 +619,11 @@ export async function cleanupOldVectors(
 /**
  * Graceful shutdown for vector storage service
  */
-export async function vectorStorageShutdown(): Promise<void> {
-  logger.info("Shutting down vector storage service", { module: "vector_storage" });
-  await nuqPool.end();
+async function vectorStorageShutdown(): Promise<void> {
+  logger.info("Shutting down vector storage service", {
+    module: "vector_storage",
+  });
+  if (nuqPool) {
+    await nuqPool.end();
+  }
 }

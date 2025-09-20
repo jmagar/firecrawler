@@ -3,7 +3,6 @@ import { load } from "cheerio"; // rustified
 import { URL } from "url";
 import { getLinksFromSitemap } from "./sitemap";
 import robotsParser, { Robot } from "robots-parser";
-import psl from "psl";
 import { getURLDepth } from "./utils/maxDepthUtils";
 import { logger as _logger } from "../../lib/logger";
 import { redisEvictConnection } from "../../services/redis";
@@ -62,6 +61,7 @@ export class WebCrawler {
   private allowExternalContentLinks: boolean;
   private allowSubdomains: boolean;
   private ignoreRobotsTxt: boolean;
+  private robotsUserAgents: string[];
   private regexOnFullURL: boolean;
   private logger: typeof _logger;
   private sitemapsHit: Set<string> = new Set();
@@ -83,7 +83,8 @@ export class WebCrawler {
     allowBackwardCrawling = false,
     allowExternalContentLinks = false,
     allowSubdomains = false,
-    ignoreRobotsTxt = false,
+    ignoreRobotsTxt = true,
+    robotsUserAgents,
     regexOnFullURL = false,
     maxDiscoveryDepth,
     currentDiscoveryDepth,
@@ -103,6 +104,7 @@ export class WebCrawler {
     allowExternalContentLinks?: boolean;
     allowSubdomains?: boolean;
     ignoreRobotsTxt?: boolean;
+    robotsUserAgents?: string[];
     regexOnFullURL?: boolean;
     maxDiscoveryDepth?: number;
     currentDiscoveryDepth?: number;
@@ -125,7 +127,11 @@ export class WebCrawler {
     this.allowBackwardCrawling = allowBackwardCrawling ?? false;
     this.allowExternalContentLinks = allowExternalContentLinks ?? false;
     this.allowSubdomains = allowSubdomains ?? false;
-    this.ignoreRobotsTxt = ignoreRobotsTxt ?? false;
+    this.ignoreRobotsTxt = ignoreRobotsTxt ?? true;
+    this.robotsUserAgents = robotsUserAgents ?? [
+      "FireCrawlAgent",
+      "FirecrawlAgent",
+    ];
     this.regexOnFullURL = regexOnFullURL ?? false;
     this.zeroDataRetention = zeroDataRetention ?? false;
     this.logger = _logger.child({
@@ -300,11 +306,7 @@ export class WebCrawler {
           }
         }
 
-        const isAllowed = this.ignoreRobotsTxt
-          ? true
-          : ((this.robots.isAllowed(link, "FireCrawlAgent") ||
-              this.robots.isAllowed(link, "FirecrawlAgent")) ??
-            true);
+        const isAllowed = this.isRobotsAllowed(link, this.ignoreRobotsTxt);
         // Check if the link is disallowed by robots.txt
         if (!isAllowed) {
           this.logger.debug(`Link disallowed by robots.txt: ${link}`, {
@@ -382,10 +384,11 @@ export class WebCrawler {
     const checker = createRobotsChecker(this.initialUrl, txt);
     this.robots = checker.robots;
     this.robotsTxtUrl = checker.robotsTxtUrl;
-    const delay =
-      this.robots.getCrawlDelay("FireCrawlAgent") ||
-      this.robots.getCrawlDelay("FirecrawlAgent");
-    this.robotsCrawlDelay = delay !== undefined ? delay : null;
+    const delayValues = this.robotsUserAgents
+      .map(ua => this.robots.getCrawlDelay(ua))
+      .filter((d): d is number => typeof d === "number");
+    this.robotsCrawlDelay =
+      delayValues.length > 0 ? Math.max(...delayValues) : null;
 
     const sitemaps = this.robots.getSitemaps();
     this.logger.debug("Processed robots.txt", {
@@ -625,9 +628,11 @@ export class WebCrawler {
 
   private isRobotsAllowed(
     url: string,
-    ignoreRobotsTxt: boolean = false,
+    ignoreRobotsTxt: boolean = true,
   ): boolean {
-    return ignoreRobotsTxt ? true : isUrlAllowedByRobots(url, this.robots);
+    return ignoreRobotsTxt
+      ? true
+      : isUrlAllowedByRobots(url, this.robots, this.robotsUserAgents);
   }
 
   public isFile(url: string): boolean {

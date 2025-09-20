@@ -37,6 +37,17 @@
 
 Empower your AI apps with clean data from any website. Featuring advanced scraping, crawling, and data extraction capabilities.
 
+> **⚠️ Breaking Changes in Latest Version**
+> 
+> This version includes breaking changes. Please review the [Migration Guide](docs/MIGRATION_GUIDE.md) before upgrading.
+> 
+> Key changes:
+> - `VECTOR_DIMENSION` is now required
+> - `metadata.wordCount` renamed to `approxWordCount`
+> - SDK method deprecations
+> 
+> See full [Migration Guide](docs/MIGRATION_GUIDE.md) for details.
+
 _This repository is in development, and we’re still integrating custom modules into the mono repo. It's not fully ready for self-hosted deployment yet, but you can run it locally._
 
 ## What is Firecrawl?
@@ -62,7 +73,7 @@ Check out the following resources to get started:
 - [x] **Others**: [Zapier](https://zapier.com/apps/firecrawl/integrations), [Pabbly Connect](https://www.pabbly.com/connect/integrations/firecrawl/)
 - [ ] Want an SDK or Integration? Let us know by opening an issue.
 
-To run locally, refer to guide [here](https://github.com/firecrawl/firecrawl/blob/main/CONTRIBUTING.md).
+To run locally, refer to guide [here](https://github.com/firecrawl/firecrawl/blob/main/CONTRIBUTING.md). For self-hosting, see the [self-hosting guide](SELF_HOST.md).
 
 ### API Key
 
@@ -667,6 +678,63 @@ const extractRes = await firecrawl.extract({
 console.log(extractRes);
 ```
 
+## Configuration
+
+### YAML Configuration (Self-Hosted)
+
+For self-hosted deployments, Firecrawl supports YAML-based configuration to set default values for API requests. This eliminates the need to specify the same parameters repeatedly across API calls.
+
+#### Quick Setup
+
+1. **Create a configuration file** in your project root:
+   ```bash
+   cp defaults.example.yaml defaults.yaml
+   ```
+
+2. **Customize your defaults** by editing `defaults.yaml`:
+   ```yaml
+   scraping:
+     formats:
+       - type: markdown
+       - type: links
+     onlyMainContent: true
+     timeout: 30000
+   
+   crawling:
+     limit: 1000
+     maxDiscoveryDepth: 3
+     allowSubdomains: false
+   ```
+
+3. **For Docker deployments**, mount the config file:
+   ```bash
+   docker run -v ./defaults.yaml:/app/defaults.yaml firecrawl/firecrawl
+   ```
+
+#### Environment Variable Support
+
+Use environment variables in your configuration with `${VAR:-default}` syntax:
+
+```yaml
+scraping:
+  timeout: ${SCRAPE_TIMEOUT:-30000}
+  proxy: ${PROXY_MODE:-auto}
+
+features:
+  vectorStorage: ${ENABLE_VECTOR_STORAGE:-false}
+```
+
+#### Configuration Precedence
+
+Settings are applied in this priority order:
+1. **YAML configuration file** (highest priority)
+2. **Environment variable overrides** (`FIRECRAWL_CONFIG_OVERRIDE`)
+3. **Environment variables** (existing behavior)
+4. **Request parameters**
+5. **Built-in defaults** (lowest priority)
+
+For detailed configuration options and examples, see the [Configuration Guide](docs/configuration-guide.md).
+
 ## Open Source vs Cloud Offering
 
 Firecrawl is open source available under the AGPL-3.0 license. 
@@ -682,7 +750,7 @@ Firecrawl Cloud is available at [firecrawl.dev](https://firecrawl.dev) and offer
 
 We love contributions! Please read our [contributing guide](CONTRIBUTING.md) before submitting a pull request. If you'd like to self-host, refer to the [self-hosting guide](SELF_HOST.md).
 
-_It is the sole responsibility of the end users to respect websites' policies when scraping, searching and crawling with Firecrawl. Users are advised to adhere to the applicable privacy policies and terms of use of the websites prior to initiating any scraping activities. By default, Firecrawl respects the directives specified in the websites' robots.txt files when crawling. By utilizing Firecrawl, you expressly agree to comply with these conditions._
+_It is the sole responsibility of the end users to respect websites' policies when scraping, searching and crawling with Firecrawl. Users are advised to adhere to the applicable privacy policies and terms of use of the websites prior to initiating any scraping activities. By default, Firecrawl ignores robots.txt directives to provide maximum crawling flexibility. Users can enable robots.txt compliance by setting `ignoreRobotsTxt: false` in their configuration. By utilizing Firecrawl, you expressly agree to comply with these conditions._
 
 ## Contributors
 

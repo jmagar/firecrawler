@@ -1,6 +1,7 @@
 import { HttpClient } from "./utils/httpClient";
 import { scrape } from "./methods/scrape";
 import { search } from "./methods/search";
+import { vectorSearch } from "./methods/vector-search";
 import { map as mapMethod } from "./methods/map";
 import {
   startCrawl,
@@ -25,6 +26,8 @@ import type {
   ScrapeOptions,
   SearchData,
   SearchRequest,
+  VectorSearchRequest,
+  VectorSearchResponse,
   MapData,
   MapOptions,
   CrawlResponse,
@@ -119,6 +122,17 @@ export class FirecrawlClient {
    */
   async search(query: string, req: Omit<SearchRequest, "query"> = {}): Promise<SearchData> {
     return search(this.http, { query, ...req });
+  }
+
+  // Vector Search
+  /**
+   * Search embedded content using vector similarity.
+   * @param query Search query string.
+   * @param req Additional vector search options (limit, threshold, filters, etc.).
+   * @returns Vector search results with similarity scores.
+   */
+  async vectorSearch(query: string, req: Omit<VectorSearchRequest, "query"> = {}): Promise<VectorSearchResponse> {
+    return vectorSearch(this.http, { query, ...req });
   }
 
   // Map

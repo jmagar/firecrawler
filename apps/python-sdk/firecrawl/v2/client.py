@@ -14,6 +14,9 @@ from .types import (
     SearchData,
     SourceOption,
     CategoryOption,
+    VectorSearchRequest,
+    VectorSearchData,
+    VectorSearchFilters,
     CrawlRequest,
     CrawlResponse,
     CrawlJob,
@@ -45,6 +48,7 @@ from .methods import scrape as scrape_module
 from .methods import crawl as crawl_module  
 from .methods import batch as batch_module
 from .methods import search as search_module
+from .methods import vector_search as vector_search_module
 from .methods import map as map_module
 from .methods import batch as batch_methods
 from .methods import usage as usage_methods
@@ -85,15 +89,16 @@ class FirecrawlClient:
                 "or pass api_key parameter."
             )
         
+        self.http_client = HttpClient(api_key, api_url)
+        normalized_api_url = self.http_client.api_url
+
         self.config = ClientConfig(
             api_key=api_key,
-            api_url=api_url,
+            api_url=normalized_api_url,
             timeout=timeout,
             max_retries=max_retries,
             backoff_factor=backoff_factor
         )
-        
-        self.http_client = HttpClient(api_key, api_url)
     
     def scrape(
         self,
@@ -214,6 +219,56 @@ class FirecrawlClient:
         )
 
         return search_module.search(self.http_client, request)
+    
+    def vector_search(
+        self,
+        query: str,
+        *,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        threshold: Optional[float] = None,
+        include_content: Optional[bool] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        origin: Optional[str] = None,
+        integration: Optional[str] = None,
+    ) -> VectorSearchData:
+        """
+        Perform a vector search for semantically similar content.
+        
+        Args:
+            query: Search query string (1-1000 characters)
+            limit: Maximum number of results to return (1-100, default: 10)
+            offset: Number of results to skip for pagination (default: 0)
+            threshold: Minimum similarity score (0-1, default: 0.7)
+            include_content: Include full content in results (default: true)
+            filters: Filters to apply to search results
+            origin: Origin identifier for the request
+            integration: Integration identifier
+            
+        Returns:
+            VectorSearchData containing the search results and metadata
+            
+        Raises:
+            ValueError: If request parameters are invalid
+            FirecrawlError: If the search operation fails
+        """
+        # Convert filters dict to VectorSearchFilters if provided
+        filters_obj = None
+        if filters is not None:
+            filters_obj = VectorSearchFilters(**filters)
+            
+        request = VectorSearchRequest(
+            query=query,
+            limit=limit,
+            offset=offset,
+            threshold=threshold,
+            include_content=include_content,
+            filters=filters_obj,
+            origin=origin,
+            integration=integration,
+        )
+
+        return vector_search_module.vector_search(self.http_client, request)
     
     def crawl(
         self,

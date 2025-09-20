@@ -12,6 +12,7 @@ import { _addScrapeJobToBullMQ } from "../../services/queue-jobs";
 import { logger as _logger } from "../../lib/logger";
 import { fromV1ScrapeOptions } from "../v2/types";
 import { checkPermissions } from "../../lib/permissions";
+import { normalizeLanguage } from "../../lib/strings";
 
 export async function crawlController(
   req: RequestWithAuth<{}, CrawlResponse, CrawlRequest>,
@@ -62,6 +63,48 @@ export async function crawlController(
     req.body.scrapeOptions.timeout,
     req.auth.team_id,
   );
+
+  // Apply automatic language filtering if DEFAULT_CRAWL_LANGUAGE is set
+  const defaultLanguage = process.env.DEFAULT_CRAWL_LANGUAGE;
+  if (defaultLanguage && normalizeLanguage(defaultLanguage) !== "all") {
+    try {
+      const { getLanguageExcludePatterns } = await import(
+        "../../lib/language-filter.js"
+      );
+      const languageExcludePatterns =
+        getLanguageExcludePatterns(defaultLanguage);
+      if (languageExcludePatterns.length > 0) {
+        // Merge (dedupe) with existing excludePaths; don't replace
+        const existingExcludePaths = Array.isArray(crawlerOptions.excludePaths)
+          ? crawlerOptions.excludePaths
+          : [];
+        const merged = Array.from(
+          new Set<string>([
+            ...existingExcludePaths,
+            ...languageExcludePatterns,
+          ]),
+        );
+        crawlerOptions.excludePaths = merged;
+        if (
+          !crawlerOptions.regexOnFullURL &&
+          languageExcludePatterns.some(p => p.includes("://"))
+        ) {
+          crawlerOptions.regexOnFullURL = true;
+        }
+
+        logger.info("Applied automatic language filtering", {
+          allowedLanguage: defaultLanguage,
+          patternsAdded: languageExcludePatterns.length,
+          totalExcludePatterns: merged.length,
+        });
+      }
+    } catch (error) {
+      logger.warn("Failed to apply language filtering", {
+        defaultLanguage,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   // TODO: @rafa, is this right? copied from v0
   if (Array.isArray(crawlerOptions.includePaths)) {

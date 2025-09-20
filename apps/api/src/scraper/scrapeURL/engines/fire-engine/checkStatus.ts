@@ -16,6 +16,7 @@ import {
 import { MockState } from "../../lib/mock";
 import { fireEngineStagingURL, fireEngineURL } from "./scrape";
 import { getDocFromGCS } from "../../../../lib/gcs-jobs";
+import { parseDocIdFromDocUrl } from "../../../../lib/utils/doc-id-parser";
 import { Meta } from "../..";
 
 const successSchema = z.object({
@@ -150,10 +151,49 @@ export async function fireEngineCheckStatus(
 
   // Fire-engine now saves the content to GCS
   if (!status.content && status.docUrl) {
-    const doc = await getDocFromGCS(status.docUrl.split("/").pop() ?? "");
-    if (doc) {
-      status = { ...status, ...doc };
-      delete status.docUrl;
+    const docId = parseDocIdFromDocUrl(status.docUrl);
+    if (docId !== "") {
+      let doc = await getDocFromGCS(docId);
+      if (!doc) {
+        logger.debug("Document not found in GCS with original docId", {
+          jobId,
+          docId,
+        });
+
+        // Try decoded fallback
+        try {
+          const decodedDocId = decodeURIComponent(docId);
+          if (decodedDocId !== docId) {
+            logger.debug("Attempting GCS retrieval with decoded docId", {
+              jobId,
+              originalDocId: docId,
+              decodedDocId,
+            });
+            doc = await getDocFromGCS(decodedDocId);
+          }
+        } catch (error) {
+          logger.debug("Failed to decode docId", {
+            jobId,
+            docId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      if (doc) {
+        status = { ...status, ...doc };
+        delete status.docUrl;
+      } else {
+        logger.debug("Document not found in GCS after all attempts", {
+          jobId,
+          docId,
+        });
+      }
+    } else {
+      logger.debug("Empty docId parsed from docUrl", {
+        jobId,
+        docUrl: status.docUrl,
+      });
     }
   }
 

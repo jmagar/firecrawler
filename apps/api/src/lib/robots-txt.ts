@@ -4,10 +4,89 @@ import { ScrapeOptions, scrapeOptions } from "../controllers/v2/types";
 import { scrapeURL } from "../scraper/scrapeURL";
 import { Engine } from "../scraper/scrapeURL/engines";
 import { CostTracking } from "./cost-tracking";
+import { scrapeTimeout } from "./scrapeTimeout";
 
 const useFireEngine =
   process.env.FIRE_ENGINE_BETA_URL !== "" &&
   process.env.FIRE_ENGINE_BETA_URL !== undefined;
+
+// Cache configuration
+const CACHE_TTL = 3600000; // 1 hour in milliseconds
+const MAX_CACHE_SIZE = 1000; // Maximum number of cached entries
+
+interface CachedRobotsTxt {
+  content: string;
+  url: string;
+  timestamp: number;
+}
+
+// Simple LRU cache implementation
+class LRUCache<K, V> {
+  private cache = new Map<K, V>();
+  private maxSize: number;
+
+  constructor(maxSize: number) {
+    this.maxSize = maxSize;
+  }
+
+  get(key: K): V | undefined {
+    const value = this.cache.get(key);
+    if (value !== undefined) {
+      // Move to end (most recently used)
+      this.cache.delete(key);
+      this.cache.set(key, value);
+    }
+    return value;
+  }
+
+  set(key: K, value: V): void {
+    if (this.cache.has(key)) {
+      // Update existing entry
+      this.cache.delete(key);
+    } else if (this.cache.size >= this.maxSize) {
+      // Remove least recently used (first entry)
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
+    this.cache.set(key, value);
+  }
+
+  delete(key: K): boolean {
+    return this.cache.delete(key);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  get size(): number {
+    return this.cache.size;
+  }
+
+  entries(): IterableIterator<[K, V]> {
+    return this.cache.entries();
+  }
+
+  keys(): IterableIterator<K> {
+    return this.cache.keys();
+  }
+}
+
+// In-memory cache for robots.txt content with LRU eviction
+const robotsCache = new LRUCache<string, CachedRobotsTxt>(MAX_CACHE_SIZE);
+
+// Cleanup expired entries periodically
+const cleanupTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [domain, cached] of robotsCache.entries()) {
+    if (now - cached.timestamp > CACHE_TTL) {
+      robotsCache.delete(domain);
+    }
+  }
+}, CACHE_TTL); // Run cleanup every hour
+
+// Prevent timer from keeping the process alive
+cleanupTimer.unref?.();
 
 interface RobotsTxtChecker {
   robotsTxtUrl: string;
@@ -30,7 +109,21 @@ export async function fetchRobotsTxt(
   abort?: AbortSignal,
 ): Promise<{ content: string; url: string }> {
   const urlObj = new URL(url);
-  const robotsTxtUrl = `${urlObj.protocol}//${urlObj.host}/robots.txt`;
+  const domain = `${urlObj.protocol}//${urlObj.host}`;
+  const robotsTxtUrl = `${domain}/robots.txt`;
+
+  // Check cache first
+  const cached = robotsCache.get(domain);
+  if (cached) {
+    const now = Date.now();
+    if (now - cached.timestamp <= CACHE_TTL) {
+      logger.debug(`Using cached robots.txt for ${domain}`);
+      return { content: cached.content, url: cached.url };
+    } else {
+      // Remove expired entry
+      robotsCache.delete(domain);
+    }
+  }
 
   const shouldPrioritizeFireEngine = location && useFireEngine;
 
@@ -56,7 +149,7 @@ export async function fetchRobotsTxt(
     robotsTxtUrl,
     scrapeOptions.parse({
       formats: ["rawHtml"],
-      timeout: 5000,
+      timeout: scrapeTimeout("robots-txt"),
       ...(location ? { location } : {}),
     }),
     {
@@ -83,6 +176,18 @@ export async function fetchRobotsTxt(
     response.document.metadata.statusCode < 300
   ) {
     content = response.document.rawHtml!;
+    const finalUrl = response.document.metadata.url || robotsTxtUrl;
+
+    // Cache successful fetch
+    robotsCache.set(domain, {
+      content,
+      url: finalUrl,
+      timestamp: Date.now(),
+    });
+
+    logger.debug(`Cached robots.txt for ${domain}`);
+
+    return { content, url: finalUrl };
   } else {
     logger.error(`Request failed for robots.txt fetch`, {
       method: "fetchRobotsTxt",
@@ -93,12 +198,6 @@ export async function fetchRobotsTxt(
     });
     return { content: "", url: robotsTxtUrl };
   }
-
-  // return URL in case we've been redirected
-  return {
-    content: content,
-    url: response.document.metadata.url || robotsTxtUrl,
-  };
 }
 
 export function createRobotsChecker(
@@ -126,10 +225,6 @@ export function isUrlAllowedByRobots(
     let isAllowed = robots.isAllowed(url, userAgent);
 
     // Handle null/undefined responses - default to true (allowed)
-    if (isAllowed === null || isAllowed === undefined) {
-      isAllowed = true;
-    }
-
     if (isAllowed == null) {
       isAllowed = true;
     }
@@ -157,4 +252,21 @@ export function isUrlAllowedByRobots(
   }
 
   return false;
+}
+
+/**
+ * Clears the robots.txt cache. Useful for testing or cache invalidation.
+ */
+export function clearRobotsCache(): void {
+  robotsCache.clear();
+}
+
+/**
+ * Gets cache statistics for monitoring purposes.
+ */
+export function getRobotsCacheStats(): { size: number; domains: string[] } {
+  return {
+    size: robotsCache.size,
+    domains: Array.from(robotsCache.keys()),
+  };
 }

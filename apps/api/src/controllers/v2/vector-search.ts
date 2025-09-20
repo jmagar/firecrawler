@@ -9,7 +9,10 @@ import {
 import { billTeam } from "../../services/billing/credit_billing";
 import { v4 as uuidv4 } from "uuid";
 import { logJob } from "../../services/logging/log_job";
-import { vectorSearch, validateVectorSearchRequest } from "../../search/v2/vector-search";
+import {
+  vectorSearch,
+  validateVectorSearchRequest,
+} from "../../search/v2/vector-search";
 import * as Sentry from "@sentry/node";
 import { logger as _logger } from "../../lib/logger";
 import type { Logger } from "winston";
@@ -43,7 +46,22 @@ export async function vectorSearchController(
 
   try {
     // Validate request using Zod schema
+    const rawBody = (req.body ?? {}) as Record<string, unknown>;
+    let thresholdProvided =
+      Object.prototype.hasOwnProperty.call(rawBody, "threshold") &&
+      rawBody["threshold"] != null;
+
     req.body = vectorSearchRequestSchema.parse(req.body);
+
+    // YAML defaults are now handled by yamlConfigDefaultsMiddleware
+    // Check if threshold was provided after middleware processing
+    if (!thresholdProvided && req.body.threshold !== undefined) {
+      thresholdProvided = true;
+      logger.debug("Threshold applied by YAML defaults middleware", {
+        threshold: req.body.threshold,
+        source: "yaml-config-middleware",
+      });
+    }
 
     logger = logger.child({
       query: req.body.query,
@@ -56,8 +74,8 @@ export async function vectorSearchController(
     // Additional validation using our custom validator
     const validationErrors = validateVectorSearchRequest(req.body);
     if (validationErrors.length > 0) {
-      logger.warn("Vector search request validation failed", { 
-        errors: validationErrors 
+      logger.warn("Vector search request validation failed", {
+        errors: validationErrors,
       });
       return res.status(400).json({
         success: false,
@@ -83,6 +101,7 @@ export async function vectorSearchController(
       logger,
       costTracking,
       teamId: req.auth.team_id,
+      thresholdProvided,
     });
 
     // Handle service-level errors
@@ -91,7 +110,7 @@ export async function vectorSearchController(
       logger.error("Vector search service returned error", {
         error: errorResponse.error,
       });
-      
+
       return res.status(500).json({
         success: false,
         error: errorResponse.error || "Vector search failed",
@@ -192,7 +211,7 @@ export async function vectorSearchController(
 
     // Handle unexpected errors
     Sentry.captureException(error);
-    logger.error("Unhandled error occurred in vector search", { 
+    logger.error("Unhandled error occurred in vector search", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });

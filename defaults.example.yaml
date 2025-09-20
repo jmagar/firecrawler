@@ -1,0 +1,272 @@
+# Firecrawl Default Configuration
+# 
+# This file provides default values for API requests to reduce repetitive parameter 
+# specification across scraping, crawling, search, and extraction operations.
+#
+# Docker Usage:
+#   Mount this file as a volume in your container:
+#   docker run -v ./defaults.yaml:/app/defaults.yaml firecrawl/firecrawl
+#
+# File Location:
+#   - Place as 'defaults.yaml' in your project root directory
+#   - Or specify custom path with FIRECRAWL_CONFIG_PATH environment variable
+#
+# Configuration Precedence (highest to lowest):
+#   1. YAML configuration file (this file - highest priority)
+#   2. Environment variable overrides (FIRECRAWL_CONFIG_OVERRIDE JSON)
+#   3. Environment variables (existing behavior preserved)
+#   4. Request parameters
+#   5. Built-in schema defaults (fallback)
+#
+# Environment Variable Substitution:
+#   Use ${VAR_NAME} or ${VAR_NAME:-default_value} syntax in any string value.
+#   Numeric and boolean values also support environment variable substitution.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCRAPING CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+# Default options for /scrape and /batch-scrape endpoints
+scraping:
+  # Output formats to extract from web pages
+  # Available formats: markdown, html, rawHtml, links, images, summary, embeddings,
+  # json (with schema), screenshot, attributes, changeTracking
+  formats:
+    - type: markdown
+    - type: links
+  
+  # Custom HTTP headers to send with requests
+  # headers:
+  #   User-Agent: "Firecrawl/1.0 (+https://firecrawl.dev)"
+  #   Authorization: "Bearer ${API_TOKEN}"
+  
+  # CSS selectors for content inclusion/exclusion
+  # includeTags:
+  #   - "article"
+  #   - "main"
+  #   - ".content"
+  # excludeTags:
+  #   - "nav"
+  #   - "footer"
+  #   - ".sidebar"
+  
+  # Extract only main content (removes navigation, sidebars, etc.)
+  onlyMainContent: true
+  
+  # Request timeout in milliseconds
+  timeout: ${SCRAPE_TIMEOUT:-30000}
+  
+  # Wait time before extracting content (milliseconds)
+  waitFor: ${WAIT_FOR:-0}
+  
+  # Use mobile user agent and viewport
+  mobile: false
+  
+  # PDF parsing configuration
+  # parsers:
+  #   - type: pdf
+  #     maxPages: 100
+  
+  # Browser automation actions
+  # actions:
+  #   - type: wait
+  #     milliseconds: 2000
+  #   - type: click
+  #     selector: ".load-more"
+  
+  # Geographic location for requests
+  location:
+    country: ${LOCATION_COUNTRY:-us-generic}
+    languages: 
+      - ${LOCATION_LANGUAGE:-en}
+  
+  # Security and performance options
+  skipTlsVerification: ${SKIP_TLS_VERIFICATION:-true}
+  removeBase64Images: ${REMOVE_BASE64_IMAGES:-true}
+  fastMode: ${FAST_MODE:-false}
+  blockAds: ${BLOCK_ADS:-true}
+  
+  # Proxy configuration: basic, stealth, or auto
+  proxy: ${PROXY_MODE:-auto}
+  
+  # Cache configuration
+  maxAge: ${CACHE_MAX_AGE:-3600}  # Cache duration in seconds
+  storeInCache: ${STORE_IN_CACHE:-true}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LANGUAGE CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+# Language filtering and geographic settings
+language:
+  # Languages to include in results (ISO 639-1 codes)
+  includeLangs:
+    - ${INCLUDE_LANGUAGES:-en}
+  
+  # Languages to exclude from results
+  # excludeLangs:
+  #   - "es"
+  #   - "fr"
+  
+  # Geographic location settings
+  location:
+    # Country code (ISO 3166-1 alpha-2) or special values: us-generic, us-whitelist
+    country: ${LOCATION_COUNTRY:-us-generic}
+    
+    # Preferred languages for the location
+    languages:
+      - ${LOCATION_LANGUAGE:-en}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CRAWLING CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+# Default options for /crawl endpoint
+crawling:
+  # URL path patterns to include
+  # includePaths:
+  #   - "/blog/*"
+  #   - "/docs/*"
+  #   - "/api/v*/docs"
+  
+  # URL path patterns to exclude
+  # excludePaths:
+  #   - "/admin/*"
+  #   - "/private/*"
+  #   - "*.pdf"
+  
+  # Maximum depth to discover pages
+  maxDiscoveryDepth: ${MAX_DISCOVERY_DEPTH:-10}
+  
+  # Maximum number of pages to crawl
+  limit: ${CRAWL_LIMIT:-10000}
+  
+  # Allow crawling external domains linked from the target
+  allowExternalLinks: ${ALLOW_EXTERNAL_LINKS:-false}
+  
+  # Allow crawling subdomains of the target domain
+  allowSubdomains: ${ALLOW_SUBDOMAINS:-false}
+  
+  # Ignore robots.txt restrictions (default: true - robots.txt is ignored by default)
+  ignoreRobotsTxt: ${IGNORE_ROBOTS_TXT:-true}
+  
+  # Sitemap handling: include or skip
+  sitemap: ${SITEMAP_MODE:-include}
+  
+  # Remove similar URLs to avoid duplicate content
+  deduplicateSimilarURLs: ${DEDUPLICATE_SIMILAR_URLS:-true}
+  
+  # Ignore query parameters when determining URL uniqueness
+  ignoreQueryParameters: ${IGNORE_QUERY_PARAMETERS:-false}
+  
+  # Apply regex patterns to full URLs instead of just paths
+  regexOnFullURL: ${REGEX_ON_FULL_URL:-false}
+  
+  # Delay between requests in milliseconds
+  # delay: ${CRAWL_DELAY:-1000}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SEARCH CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+# Default options for /search endpoint
+search:
+  # Maximum number of search results to return
+  limit: ${SEARCH_LIMIT:-5}
+  
+  # Language for search results (ISO 639-1 code)
+  lang: ${SEARCH_LANGUAGE:-en}
+  
+  # Country for search results (ISO 3166-1 alpha-2 code)
+  country: ${SEARCH_COUNTRY:-us}
+  
+  # Search result sources
+  sources:
+    - ${SEARCH_SOURCES:-web}
+  
+  # Search timeout in milliseconds
+  timeout: ${SEARCH_TIMEOUT:-60000}
+  
+  # Skip invalid URLs in search results
+  ignoreInvalidURLs: ${IGNORE_INVALID_URLS:-false}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# EMBEDDINGS CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+# Vector embeddings and semantic search settings
+embeddings:
+  # Enable automatic embedding generation
+  enabled: ${ENABLE_VECTOR_STORAGE:-false}
+  
+  # Embedding model to use
+  model: ${EMBEDDING_MODEL:-text-embedding-ada-002}
+  
+  # Embedding provider (openai, etc.)
+  provider: ${EMBEDDING_PROVIDER:-openai}
+  
+  # Vector dimension size
+  dimension: ${EMBEDDING_DIMENSION:-1024}
+  
+  # Maximum content length for embedding generation
+  maxContentLength: ${EMBEDDING_MAX_CONTENT_LENGTH:-8000}
+  
+  # Minimum similarity threshold for search results
+  minSimilarityThreshold: ${MIN_SIMILARITY_THRESHOLD:-0.7}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FEATURES CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+# Feature flags and system behavior
+features:
+  # Enable vector storage and semantic search capabilities
+  vectorStorage: ${ENABLE_VECTOR_STORAGE:-false}
+  
+  # Use database authentication instead of simple token auth
+  useDbAuthentication: ${USE_DB_AUTHENTICATION:-false}
+  
+  # Enable IP address whitelisting for API access
+  ipWhitelist: ${IP_WHITELIST_ENABLED:-false}
+  
+  # Enable zero data retention mode (delete all data after processing)
+  zeroDataRetention: ${ZERO_DATA_RETENTION:-false}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENVIRONMENT VARIABLE EXAMPLES
+# ═══════════════════════════════════════════════════════════════════════════════
+# 
+# String values with defaults:
+#   api_key: "${OPENAI_API_KEY:-your-default-key}"
+#   base_url: "${API_BASE_URL:-https://api.openai.com}"
+#
+# Numeric values with defaults:
+#   timeout: "${REQUEST_TIMEOUT:-30000}"
+#   limit: "${MAX_RESULTS:-100}"
+#
+# Boolean values with defaults:
+#   enabled: "${FEATURE_ENABLED:-true}"
+#   debug_mode: "${DEBUG:-false}"
+#
+# Array values (environment variables not directly supported in arrays):
+#   formats:
+#     - type: markdown
+#     - type: "${ADDITIONAL_FORMAT:-links}"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# USAGE EXAMPLES
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Basic setup:
+#   1. Copy this file to 'defaults.yaml' in your project root
+#   2. Customize the values for your use case
+#   3. Set environment variables for sensitive data:
+#      export OPENAI_API_KEY="your-api-key"
+#      export ENABLE_VECTOR_STORAGE="true"
+#   4. Start Firecrawl - defaults will be applied automatically
+#
+# Docker setup:
+#   docker run -v ./defaults.yaml:/app/defaults.yaml \
+#              -e OPENAI_API_KEY="your-key" \
+#              -e ENABLE_VECTOR_STORAGE="true" \
+#              firecrawl/firecrawl
+#
+# Override specific configs:
+#   export FIRECRAWL_CONFIG_OVERRIDE='{"scraping":{"timeout":60000}}'
+#   
+# Validation:
+#   npm run validate-config defaults.yaml

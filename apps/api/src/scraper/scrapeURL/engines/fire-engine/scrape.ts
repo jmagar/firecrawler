@@ -6,6 +6,7 @@ import { Action } from "../../../../controllers/v1/types";
 import { robustFetch } from "../../lib/fetch";
 import { MockState } from "../../lib/mock";
 import { getDocFromGCS } from "../../../../lib/gcs-jobs";
+import { parseDocIdFromDocUrl } from "../../../../lib/utils/doc-id-parser";
 import {
   ActionError,
   DNSResolutionError,
@@ -198,10 +199,25 @@ export async function fireEngineScrape<
 
   // Fire-engine now saves the content to GCS
   if (!status.content && status.docUrl) {
-    const doc = await getDocFromGCS(status.docUrl.split("/").pop() ?? "");
-    if (doc) {
-      status = { ...status, ...doc };
-      delete status.docUrl;
+    const docId = parseDocIdFromDocUrl(status.docUrl);
+    if (docId !== "") {
+      let doc = await getDocFromGCS(docId);
+      if (!doc) {
+        logger.debug("Doc not found in GCS for parsed docId", { docId });
+        // Try decoding the docId and retry
+        const decodedDocId = decodeURIComponent(docId);
+        if (decodedDocId !== docId) {
+          doc = await getDocFromGCS(decodedDocId);
+        }
+      }
+      if (doc) {
+        status = { ...status, ...doc };
+        delete status.docUrl;
+      }
+    } else {
+      logger.debug("Empty docId parsed from docUrl; skipping GCS fetch", {
+        docUrl: status.docUrl,
+      });
     }
   }
 

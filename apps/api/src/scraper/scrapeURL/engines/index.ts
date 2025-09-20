@@ -16,7 +16,7 @@ import {
 import { indexMaxReasonableTime, scrapeURLWithIndex } from "./index/index";
 import { useIndex } from "../../../services";
 import { hasFormatOfType } from "../../../lib/format-utils";
-import { getPDFMaxPages } from "../../../controllers/v2/types";
+import { getPDFMaxPages, shouldParsePDF } from "../../../lib/pdf-utils";
 import { PdfMetadata } from "@mendable/firecrawl-rs";
 
 export type Engine =
@@ -58,8 +58,8 @@ const engines: Engine[] = [
     : []),
   ...(usePlaywright ? ["playwright" as const] : []),
   "fetch",
-  "pdf",
-  "docx",
+  // "pdf",  // Disabled - was causing all URLs to be scraped as PDFs
+  // "docx", // Disabled - not needed for general web scraping
 ];
 
 const featureFlags = [
@@ -462,6 +462,20 @@ export function buildFallbackList(meta: Meta): {
       : []),
   ];
 
+  // Conditionally inject PDF and DOCX engines when explicitly requested
+  const isPDFRequested =
+    meta.featureFlags.has("pdf") ||
+    (meta.options.parsers && shouldParsePDF(meta.options.parsers));
+  const isDOCXRequested = meta.featureFlags.has("docx");
+
+  if (isPDFRequested && !_engines.includes("pdf")) {
+    _engines.push("pdf");
+  }
+
+  if (isDOCXRequested && !_engines.includes("docx")) {
+    _engines.push("docx");
+  }
+
   const shouldUseIndex =
     useIndex &&
     process.env.FIRECRAWL_INDEX_WRITE_ONLY !== "true" &&
@@ -529,9 +543,19 @@ export function buildFallbackList(meta: Meta): {
     }
   }
 
+  const mustKeep = new Set<Engine>();
+  if (
+    meta.featureFlags.has("pdf") ||
+    (meta.options.parsers && shouldParsePDF(meta.options.parsers))
+  ) {
+    mustKeep.add("pdf");
+  }
+  if (meta.featureFlags.has("docx")) {
+    mustKeep.add("docx");
+  }
   if (selectedEngines.some(x => engineOptions[x.engine].quality > 0)) {
     selectedEngines = selectedEngines.filter(
-      x => engineOptions[x.engine].quality > 0,
+      x => engineOptions[x.engine].quality > 0 || mustKeep.has(x.engine),
     );
   }
 

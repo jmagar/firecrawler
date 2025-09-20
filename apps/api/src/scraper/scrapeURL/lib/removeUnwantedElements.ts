@@ -7,10 +7,13 @@ import { logger } from "../../../lib/logger";
 import { queryOMCESignatures } from "../../../services/index";
 
 const excludeNonMainTags = [
+  // Standard HTML navigation elements
   "header",
   "footer",
   "nav",
   "aside",
+
+  // Classic CSS patterns (maintained for compatibility)
   ".header",
   ".top",
   ".navbar",
@@ -22,32 +25,175 @@ const excludeNonMainTags = [
   ".side",
   ".aside",
   "#sidebar",
-  ".modal",
-  ".popup",
-  "#modal",
-  ".overlay",
-  ".ad",
-  ".ads",
-  ".advert",
-  "#ad",
-  ".lang-selector",
-  ".language",
-  "#language-selector",
-  ".social",
-  ".social-media",
-  ".social-links",
-  "#social",
   ".menu",
   ".navigation",
   "#nav",
   ".breadcrumbs",
   "#breadcrumbs",
-  ".share",
-  "#share",
-  ".widget",
-  "#widget",
+
+  // ARIA navigation roles (modern accessibility)
+  "[role='navigation']",
+  "[role='banner']",
+  "[role='contentinfo']",
+  "[role='complementary']",
+  "[role='menubar']",
+  "[role='menu']",
+  "[role='tablist']",
+  "[role='searchbox']",
+
+  // Modern framework navigation patterns
+  ".nav-bar",
+  ".nav-menu",
+  ".navigation-bar",
+  ".main-nav",
+  ".primary-nav",
+  ".secondary-nav",
+  ".top-nav",
+  ".bottom-nav",
+  ".mobile-nav",
+  ".desktop-nav",
+  ".nav-container",
+  ".nav-wrapper",
+
+  // Mobile-specific navigation
+  ".mobile-menu",
+  ".hamburger",
+  ".burger-menu",
+  ".drawer",
+  ".off-canvas",
+  ".slide-menu",
+  ".mobile-header",
+  ".mobile-footer",
+
+  // Modern CSS framework patterns
+  ".navbar-nav",
+  ".navbar-brand",
+  ".navbar-toggler",
+  ".nav-tabs",
+  ".nav-pills",
+  ".breadcrumb",
+  ".pagination",
+  ".page-navigation",
+
+  // E-commerce navigation
+  ".cart",
+  ".shopping-cart",
+  ".minicart",
+  ".account-menu",
+  ".user-menu",
+  ".wishlist",
+  ".compare",
+  ".checkout-steps",
+
+  // Search and filters
+  ".search-bar",
+  ".search-form",
+  ".search-container",
+  ".filters",
+  ".facets",
+  ".sort-options",
+  ".search-suggestions",
+  ".autocomplete",
+
+  // Advertising and tracking (enhanced)
+  ".ad",
+  ".ads",
+  ".advert",
+  ".advertisement",
+  ".banner-ad",
+  ".google-ad",
+  ".adsense",
+  ".sponsored",
+  ".promoted",
+  "#ad",
+  "#ads",
+  "#advertisement",
+
+  // Cookie consent and privacy
   ".cookie",
+  ".cookie-banner",
+  ".cookie-consent",
+  ".gdpr-banner",
+  ".privacy-notice",
+  ".consent-banner",
   "#cookie",
+  "#cookie-banner",
+  "#gdpr",
+
+  // Chat and support widgets
+  ".chat",
+  ".chat-widget",
+  ".live-chat",
+  ".support-widget",
+  ".help-widget",
+  ".intercom",
+  ".zendesk",
+  ".drift",
+
+  // Social sharing and media
+  ".social",
+  ".social-media",
+  ".social-links",
+  ".social-share",
+  ".share",
+  ".share-buttons",
+  "#social",
+  "#share",
+
+  // Language and region selectors
+  ".lang-selector",
+  ".language",
+  ".locale-selector",
+  ".region-selector",
+  ".country-selector",
+  "#language-selector",
+
+  // Modal and overlay elements
+  ".modal",
+  ".popup",
+  ".overlay",
+  ".lightbox",
+  ".dialog",
+  ".dropdown",
+  "#modal",
+
+  // Widgets and sidebars
+  ".widget",
+  ".sidebar-widget",
+  ".related",
+  ".recommended",
+  ".popular",
+  ".trending",
+  "#widget",
+
+  // Newsletter and subscription
+  ".newsletter",
+  ".subscription",
+  ".signup",
+  ".email-signup",
+  ".mailing-list",
+
+  // User account elements
+  ".login",
+  ".signin",
+  ".signup",
+  ".register",
+  ".account",
+  ".profile",
+  ".user-info",
+
+  // Skip links and accessibility
+  ".skip-link",
+  ".skip-to-content",
+  ".screen-reader-text",
+  ".visually-hidden",
+
+  // Loading and placeholder elements
+  ".loading",
+  ".spinner",
+  ".skeleton",
+  ".placeholder",
+  ".lazy-load",
 ];
 
 const forceIncludeMainTags = [

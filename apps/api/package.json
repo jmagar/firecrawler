@@ -29,11 +29,15 @@
     "mongo-docker": "docker run -d -p 2717:27017 -v ./mongo-data:/data/db --name mongodb mongo:latest",
     "mongo-docker-console": "docker exec -it mongodb mongosh",
     "run-example": "npx ts-node src/example.ts",
+    "generate-config": "tsx src/scripts/generate-config.ts",
     "sentry:sourcemaps": "sentry-cli sourcemaps inject --org caleb-peffer --project firecrawl-scraper-js ./dist && sentry-cli sourcemaps upload --org caleb-peffer --project firecrawl-scraper-js ./dist",
     "prepare": "cd ../.. && husky ./apps/api/.husky"
   },
   "author": "",
   "license": "ISC",
+  "engines": {
+    "node": ">=18.18"
+  },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
     "@types/body-parser": "^1.19.2",
@@ -42,6 +46,7 @@
     "@types/express": "^4.17.21",
     "@types/express-ws": "^3.0.5",
     "@types/jest": "^29.5.12",
+    "@types/js-yaml": "^4.0.9",
     "@types/lodash": "^4.17.14",
     "@types/node": "^20.14.1",
     "@types/pdf-parse": "^1.1.4",
@@ -96,6 +101,7 @@
     "bullmq-otel": "^1.0.1",
     "cacheable-lookup": "^6.1.0",
     "cheerio": "^1.0.0-rc.12",
+    "chokidar": "^4.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "escape-html": "^1.0.3",
@@ -107,6 +113,7 @@
     "ioredis": "^5.6.1",
     "ipaddr.js": "^2.2.0",
     "joplin-turndown-plugin-gfm": "^1.0.12",
+    "js-yaml": "^4.1.0",
     "jsdom": "^26.0.0",
     "koffi": "^2.9.0",
     "langfuse": "^3.38.4",
@@ -161,8 +168,7 @@
     }
   },
   "lint-staged": {
-    "*.{js,jsx,ts,tsx,json,css,md}": "prettier --write",
-    "*.{js,tsx,ts,tsx}": "ts-prune --skip \"native/\" --error"
+    "*.{js,jsx,ts,tsx,json,css,md}": "prettier --write"
   },
   "packageManager": "pnpm@10.15.1"
 }

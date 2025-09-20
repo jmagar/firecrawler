@@ -18,6 +18,7 @@ import {
   isSameDomain,
   isSameSubdomain,
 } from "../../lib/validateUrl";
+import { filterUrlsByLanguage } from "../../lib/language-filter.js";
 import { fireEngineMap } from "../../search/fireEngine";
 import { billTeam } from "../../services/billing/credit_billing";
 import { logJob } from "../../services/logging/log_job";
@@ -311,6 +312,36 @@ async function getMapResults({
 
   if (!includeSubdomains) {
     mapResults = mapResults.filter(x => isSameSubdomain(x.url, url));
+  }
+
+  // Apply automatic language filtering if DEFAULT_CRAWL_LANGUAGE is set
+  const rawLang = process.env.DEFAULT_CRAWL_LANGUAGE ?? "";
+  const defaultLanguage = rawLang.trim().toLowerCase();
+  if (defaultLanguage && defaultLanguage !== "all") {
+    try {
+      // Normalize to base language for consistent filtering
+      const baseLang = defaultLanguage.split(/[-_]/)[0];
+      const urlList = mapResults.map(x => x.url);
+      const { included, excluded } = filterUrlsByLanguage(urlList, baseLang);
+
+      if (excluded.length > 0) {
+        const includeSet = new Set(included);
+        mapResults = mapResults.filter(x => includeSet.has(x.url));
+
+        logger.info("Applied automatic language filtering to map results", {
+          allowedLanguage: defaultLanguage,
+          baseLang,
+          originalCount: urlList.length,
+          filteredCount: mapResults.length,
+          excludedCount: excluded.length,
+        });
+      }
+    } catch (error) {
+      logger.warn("Failed to apply language filtering to map results", {
+        defaultLanguage,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   if (filterByPath && !allowExternalLinks) {

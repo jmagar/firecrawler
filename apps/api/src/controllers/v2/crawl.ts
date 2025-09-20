@@ -13,6 +13,9 @@ import { logger as _logger } from "../../lib/logger";
 import { generateCrawlerOptionsFromPrompt } from "../../scraper/scrapeURL/transformers/llmExtract";
 import { CostTracking } from "../../lib/cost-tracking";
 import { checkPermissions } from "../../lib/permissions";
+import { getLanguageExcludePatterns } from "../../lib/language-filter.js";
+// Memoize language patterns to avoid recomputing on every request
+const __languageExcludeCache = new Map<string, string[]>();
 
 export async function crawlController(
   req: RequestWithAuth<{}, CrawlResponse, CrawlRequest>,
@@ -110,6 +113,58 @@ export async function crawlController(
     }
   }
 
+  // Apply automatic language filtering if DEFAULT_CRAWL_LANGUAGE is set
+  const defaultLanguageRaw = process.env.DEFAULT_CRAWL_LANGUAGE;
+  const defaultLanguage = defaultLanguageRaw?.trim().toLowerCase() || undefined;
+  let __langPatternSet: Set<string> | null = null;
+  if (defaultLanguage && defaultLanguage !== "all") {
+    try {
+      // Extract base language for cache key to avoid duplicates (e.g., "en-US" -> "en")
+      const cacheKey = defaultLanguage
+        ? defaultLanguage.split(/[-_]/)[0]
+        : undefined;
+      const languageExcludePatterns =
+        __languageExcludeCache.get(cacheKey!) ||
+        getLanguageExcludePatterns(defaultLanguage);
+      if (!__languageExcludeCache.has(cacheKey!)) {
+        __languageExcludeCache.set(cacheKey!, languageExcludePatterns);
+      }
+      if (languageExcludePatterns.length > 0) {
+        // Store generated patterns to avoid recompiling during validation
+        __langPatternSet = new Set(languageExcludePatterns);
+        const existingExcludePaths = finalCrawlerOptions.excludePaths || [];
+        // merge then deduplicate while preserving order
+        const merged = [...existingExcludePaths, ...languageExcludePatterns];
+        const deduped = Array.from(new Set(merged));
+        finalCrawlerOptions.excludePaths = deduped;
+        const duplicatesRemoved = merged.length - deduped.length;
+        if (
+          !finalCrawlerOptions.regexOnFullURL &&
+          languageExcludePatterns.some(p => p.startsWith("^(?:https?:)?//"))
+        ) {
+          finalCrawlerOptions.regexOnFullURL = true;
+          logger.debug(
+            "Enabled regexOnFullURL due to language patterns containing full URLs",
+          );
+        }
+        logger.info("Applied automatic language filtering", {
+          allowedLanguage: defaultLanguage,
+          languageFilterSource: "env_default",
+          existingExcludePatternsCount: existingExcludePaths.length,
+          addedExcludePatternsCount: languageExcludePatterns.length,
+          totalExcludePatterns: finalCrawlerOptions.excludePaths.length,
+          duplicatesRemoved,
+          regexOnFullURL: finalCrawlerOptions.regexOnFullURL === true,
+        });
+      }
+    } catch (error) {
+      logger.warn("Failed to apply language filtering", {
+        defaultLanguage,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   if (Array.isArray(finalCrawlerOptions.includePaths)) {
     for (const x of finalCrawlerOptions.includePaths) {
       try {
@@ -122,6 +177,8 @@ export async function crawlController(
 
   if (Array.isArray(finalCrawlerOptions.excludePaths)) {
     for (const x of finalCrawlerOptions.excludePaths) {
+      // Skip validation for auto-generated language patterns since they're already validated internally
+      if (__langPatternSet?.has(x)) continue;
       try {
         new RegExp(x);
       } catch (e) {

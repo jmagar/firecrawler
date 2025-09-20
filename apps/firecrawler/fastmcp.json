@@ -1,0 +1,26 @@
+{
+  "$schema": "https://gofastmcp.com/public/schemas/fastmcp.json/latest.json",
+  "source":  {
+    "type": "filesystem",
+    "path": "firecrawl_mcp/server.py",
+    "entrypoint": "mcp"
+  },
+  "environment": {
+    "type": "uv",
+    "python": ">=3.11",
+    "project": ".",
+    "editable": ["."]
+  },
+  "deployment": {
+      "transport": "http",
+      "host": "0.0.0.0",
+      "port": 5100,
+      "path": "/mcp/",
+      "log_level": "DEBUG",
+      "env": {
+        "FIRECRAWL_API_URL": "http://localhost:3002",
+        "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}"
+      },
+      "cwd": "."
+    }
+  }

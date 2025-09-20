@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { protocolIncluded, checkUrl } from "../../lib/validateUrl";
+import {
+  url,
+  generateLLMsTextRequestSchema,
+  GenerateLLMsTextRequest,
+} from "../../shared/content-schemas";
 import { countries } from "../../lib/validate-country";
 import {
   ExtractorOptions,
@@ -19,46 +24,14 @@ import { ErrorCodes } from "../../lib/error";
 import Ajv from "ajv";
 import { integrationSchema } from "../../utils/integration";
 import { webhookSchema } from "../../services/webhook/schema";
+import { API_CONTENT_TYPES } from "../../shared/content-types";
+import { shouldParsePDF, getPDFMaxPages } from "../../lib/pdf-utils";
 
-export const url = z.preprocess(
-  x => {
-    if (!protocolIncluded(x as string)) {
-      x = `http://${x}`;
-    }
+// URL schema imported from shared module
+export { url, generateLLMsTextRequestSchema, GenerateLLMsTextRequest };
 
-    // transforming the query parameters is breaking certain sites, so we're not doing it - mogery
-    // try {
-    //   const urlObj = new URL(x as string);
-    //   if (urlObj.search) {
-    //     const searchParams = new URLSearchParams(urlObj.search.substring(1));
-    //     return `${urlObj.origin}${urlObj.pathname}?${searchParams.toString()}`;
-    //   }
-    // } catch (e) {
-    // }
-
-    return x;
-  },
-  z
-    .string()
-    .url()
-    .regex(/^https?:\/\//i, "URL uses unsupported protocol")
-    .refine(
-      x =>
-        /(\.[a-zA-Z0-9-\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F]{2,}|\.xn--[a-zA-Z0-9-]{1,})(:\d+)?([\/?#]|$)/i.test(
-          x,
-        ),
-      "URL must have a valid top-level domain or be a valid path",
-    )
-    .refine(x => {
-      try {
-        checkUrl(x as string);
-        return true;
-      } catch (_) {
-        return false;
-      }
-    }, "Invalid URL"),
-  // .refine((x) => !isUrlBlocked(x as string), BLOCKLISTED_URL_MESSAGE),
-);
+// Re-export PDF utils for backward compatibility
+export { shouldParsePDF, getPDFMaxPages };
 
 const strictMessage =
   "Unrecognized key in body -- please review the v2 API documentation for request body changes";
@@ -255,31 +228,6 @@ const parsersSchema = z
 
 type Parsers = z.infer<typeof parsersSchema>;
 
-export function shouldParsePDF(parsers?: Parsers): boolean {
-  if (!parsers) return true;
-  return parsers.some(parser => {
-    if (parser === "pdf") return true;
-    if (typeof parser === "object" && parser !== null && "type" in parser) {
-      return (parser as any).type === "pdf";
-    }
-    return false;
-  });
-}
-
-export function getPDFMaxPages(parsers?: Parsers): number | undefined {
-  if (!parsers) return undefined;
-  const pdfParser = parsers.find(parser => {
-    if (typeof parser === "object" && parser !== null && "type" in parser) {
-      return (parser as any).type === "pdf";
-    }
-    return false;
-  });
-  if (pdfParser && typeof pdfParser === "object" && "maxPages" in pdfParser) {
-    return (pdfParser as any).maxPages;
-  }
-  return undefined;
-}
-
 function transformIframeSelector(selector: string): string {
   return selector.replace(/(?:^|[\s,])iframe(?=\s|$|[.#\[:,])/g, match => {
     const prefix = match.match(/^[\s,]/)?.[0] || "";
@@ -383,6 +331,13 @@ const baseScrapeOptions = z
     proxy: z.enum(["basic", "stealth", "auto"]).default("auto"),
     maxAge: z.number().int().gte(0).safe().optional(),
     storeInCache: z.boolean().default(true),
+
+    // Phase 1: Enhanced noise reduction controls
+    enhancedNoiseReduction: z.boolean().default(true).optional(),
+    contentQualityThreshold: z.number().min(0).max(1).default(0.3).optional(),
+    maxNavigationRatio: z.number().min(0).max(1).default(0.4).optional(),
+    aggressiveFiltering: z.boolean().default(false).optional(),
+
     // @deprecated
     __searchPreviewToken: z.string().optional(),
     __experimental_omce: z.boolean().default(false).optional(),
@@ -586,7 +541,12 @@ const crawlerOptions = z
     crawlEntireDomain: z.boolean().optional(),
     allowExternalLinks: z.boolean().default(false),
     allowSubdomains: z.boolean().default(false),
-    ignoreRobotsTxt: z.boolean().default(false),
+    ignoreRobotsTxt: z.boolean().default(true),
+    robotsUserAgents: z
+      .string()
+      .array()
+      .optional()
+      .describe("Custom user agents to check in robots.txt"),
     sitemap: z.enum(["skip", "include"]).default("include"),
     deduplicateSimilarURLs: z.boolean().default(true),
     ignoreQueryParameters: z.boolean().default(false),
@@ -1457,7 +1417,11 @@ export type TokenUsage = {
 // Vector Search Types
 export const vectorSearchRequestSchema = z
   .object({
-    query: z.string().min(1).max(1000).describe("Natural language search query"),
+    query: z
+      .string()
+      .min(1)
+      .max(1000)
+      .describe("Natural language search query"),
     limit: z
       .number()
       .int()
@@ -1490,10 +1454,23 @@ export const vectorSearchRequestSchema = z
     filters: z
       .object({
         domain: z.string().optional().describe("Filter by specific domain"),
-        repository: z.string().optional().describe("Filter by GitHub repository name"),
-        repositoryOrg: z.string().optional().describe("Filter by GitHub organization"),
+        repository: z
+          .string()
+          .min(1, "Repository cannot be empty")
+          .optional()
+          .describe("Filter by GitHub repository name"),
+        repositoryOrg: z
+          .string()
+          .min(1, "Organization cannot be empty")
+          .optional()
+          .describe("Filter by GitHub organization"),
+        repositoryFullName: z
+          .string()
+          .regex(/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/)
+          .optional()
+          .describe("Filter by GitHub repository in 'org/repo' format"),
         contentType: z
-          .enum(["readme", "api-docs", "tutorial", "configuration", "code", "other"])
+          .enum(API_CONTENT_TYPES)
           .optional()
           .describe("Filter by content type"),
         dateRange: z
@@ -1512,6 +1489,65 @@ export const vectorSearchRequestSchema = z
           .optional()
           .describe("Filter by scrape date range"),
       })
+      .refine(
+        data => {
+          /**
+           * Repository Filter Validation Rules:
+           * 1. Cannot use repositoryFullName with separate repository/repositoryOrg fields simultaneously
+           * 2. When using separate fields, both repository AND repositoryOrg must be provided together
+           * 3. Single repository field without repositoryOrg is ambiguous and not allowed
+           *
+           * Note: Storage-side normalization in apps/api/src/services/vector-storage.ts
+           * ensures case-insensitive matching works correctly for all repository filters.
+           */
+          // Prevent ambiguous repository filtering
+          const hasRepoFullName = !!data.repositoryFullName;
+          const hasRepoFields = !!(data.repository || data.repositoryOrg);
+
+          if (hasRepoFullName && hasRepoFields) {
+            return false;
+          }
+
+          // If using separate fields, require both for complete filtering
+          if (data.repository && !data.repositoryOrg) {
+            return false;
+          }
+
+          // Require both fields together - repositoryOrg without repository is not allowed
+          if (data.repositoryOrg && !data.repository) {
+            return false;
+          }
+
+          return true;
+        },
+        {
+          message:
+            "Use either 'repositoryFullName' (org/repo) OR both 'repository' and 'repositoryOrg' together. Supplying only one of the pair is not allowed.",
+        },
+      )
+      .transform(data => {
+        // Normalize repositoryFullName to separate fields
+        if (data.repositoryFullName) {
+          const [org, repo] = data.repositoryFullName.split("/");
+          return {
+            ...data,
+            repositoryOrg: org.toLowerCase(),
+            repository: repo.toLowerCase(),
+            repositoryFullName: undefined, // Remove after normalization
+          };
+        }
+
+        // Normalize repository fields to lowercase if they exist
+        if (data.repository && data.repositoryOrg) {
+          return {
+            ...data,
+            repository: data.repository.toLowerCase(),
+            repositoryOrg: data.repositoryOrg.toLowerCase(),
+          };
+        }
+
+        return data;
+      })
       .optional()
       .default({})
       .describe("Filtering options for search results"),
@@ -1521,7 +1557,6 @@ export const vectorSearchRequestSchema = z
   .strict(strictMessage);
 
 export type VectorSearchRequest = z.infer<typeof vectorSearchRequestSchema>;
-export type VectorSearchRequestInput = z.input<typeof vectorSearchRequestSchema>;
 
 export type VectorSearchResult = {
   id: string;
@@ -1538,7 +1573,7 @@ export type VectorSearchResult = {
     filePath?: string;
     branchVersion?: string;
     contentType?: string;
-    wordCount?: number;
+    approxWordCount?: number;
     [key: string]: any;
   };
 };
@@ -1554,6 +1589,7 @@ export type VectorSearchResponse =
         limit: number;
         offset: number;
         threshold: number;
+        thresholdHistory?: number[];
         timing: {
           queryEmbeddingMs: number;
           vectorSearchMs: number;
@@ -1564,23 +1600,4 @@ export type VectorSearchResponse =
       warning?: string;
     };
 
-const generateLLMsTextRequestSchema = z.object({
-  url: url.describe("The URL to generate text from"),
-  maxUrls: z
-    .number()
-    .min(1)
-    .max(5000)
-    .default(10)
-    .describe("Maximum number of URLs to process"),
-  showFullText: z
-    .boolean()
-    .default(false)
-    .describe("Whether to show the full LLMs-full.txt in the response"),
-  cache: z
-    .boolean()
-    .default(true)
-    .describe("Whether to use cached content if available"),
-  __experimental_stream: z.boolean().optional(),
-});
-
-type GenerateLLMsTextRequest = z.infer<typeof generateLLMsTextRequestSchema>;
+// generateLLMsTextRequestSchema and GenerateLLMsTextRequest imported from shared module

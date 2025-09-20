@@ -11,6 +11,7 @@ import { deleteKey, getValue } from "../services/redis";
 import { setValue } from "../services/redis";
 import { validate } from "uuid";
 import * as Sentry from "@sentry/node";
+import { createHash } from "node:crypto";
 import { AuthCreditUsageChunk, AuthCreditUsageChunkFromTeam } from "./v1/types";
 // const { data, error } = await supabase_service
 //     .from('api_keys')
@@ -142,7 +143,19 @@ const mockACUC: () => AuthCreditUsageChunk = () => ({
     bucketLimit: 25,
     planModifier: 0.1,
   },
-  concurrency: 99999999,
+  concurrency: (() => {
+    const DEFAULT = 16;
+    const rawUpper = process.env.MAX_WORKERS_PER_QUEUE?.trim() ?? "";
+    const parsedUpper = rawUpper !== "" ? Number.parseInt(rawUpper, 10) : 256;
+    const HARD_MAX =
+      Number.isFinite(parsedUpper) && parsedUpper > 0 ? parsedUpper : 256;
+
+    const raw = process.env.NUM_WORKERS_PER_QUEUE?.trim() ?? "";
+    const n = raw !== "" ? Number.parseInt(raw, 10) : DEFAULT;
+    const safe = Number.isFinite(n) && n > 0 ? n : DEFAULT;
+
+    return Math.min(HARD_MAX, Math.max(1, safe));
+  })(),
   flags: null,
   is_extract: false,
 });
@@ -202,14 +215,18 @@ export async function getACUC(
       }
 
       logger.warn(
-        `Failed to retrieve authentication and credit usage data after ${retries}, trying again...`,
+        `Attempt ${retries + 1} of ${maxRetries} failed, retrying...`,
         { error },
       );
       retries++;
       if (retries === maxRetries) {
+        const originalError =
+          error instanceof Error ? error : new Error(String(error));
         throw new Error(
-          "Failed to retrieve authentication and credit usage data after 3 attempts: " +
-            JSON.stringify(error),
+          `Failed to retrieve authentication and credit usage data after ${maxRetries} attempts: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          { cause: originalError },
         );
       }
 
@@ -218,7 +235,9 @@ export async function getACUC(
     }
 
     const chunk: AuthCreditUsageChunk | null =
-      data.length === 0 ? null : data[0].team_id === null ? null : data[0];
+      Array.isArray(data) && data.length > 0 && data[0]?.team_id != null
+        ? data[0]
+        : null;
 
     if (chunk) {
       chunk.is_extract = isExtract;
@@ -329,14 +348,18 @@ export async function getACUCTeam(
       }
 
       logger.warn(
-        `Failed to retrieve authentication and credit usage data after ${retries}, trying again...`,
+        `Attempt ${retries + 1} of ${maxRetries} failed, retrying...`,
         { error },
       );
       retries++;
       if (retries === maxRetries) {
+        const originalError =
+          error instanceof Error ? error : new Error(String(error));
         throw new Error(
-          "Failed to retrieve authentication and credit usage data after 3 attempts: " +
-            JSON.stringify(error),
+          `Failed to retrieve authentication and credit usage data after ${maxRetries} attempts: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          { cause: originalError },
         );
       }
 
@@ -344,8 +367,10 @@ export async function getACUCTeam(
       await new Promise(resolve => setTimeout(resolve, 200));
     }
 
-    const chunk: AuthCreditUsageChunk | null =
-      data.length === 0 ? null : data[0].team_id === null ? null : data[0];
+    const chunk: AuthCreditUsageChunkFromTeam | null =
+      Array.isArray(data) && data.length > 0 && data[0]?.team_id != null
+        ? data[0]
+        : null;
 
     // NOTE: Should we cache null chunks? - mogery
     if (chunk !== null && useCache) {
@@ -420,10 +445,24 @@ async function supaAuthenticateUser(
     };
   }
 
-  const incomingIP = (req.headers["x-preview-ip"] ||
-    req.headers["x-forwarded-for"] ||
-    req.socket.remoteAddress) as string;
-  const iptoken = incomingIP + token;
+  const trustProxy = Boolean(req.app?.get?.("trust proxy"));
+  const xff = Array.isArray(req.headers["x-forwarded-for"])
+    ? req.headers["x-forwarded-for"][0]
+    : (req.headers["x-forwarded-for"] as string | undefined);
+  const firstHop = xff?.split(",")[0]?.trim();
+  const candidateIP =
+    (trustProxy && firstHop) || req.ip || req.socket.remoteAddress || "unknown";
+  const previewIpHeader =
+    typeof req.headers["x-preview-ip"] === "string"
+      ? req.headers["x-preview-ip"].split(",")[0].trim()
+      : undefined;
+  const incomingIP =
+    token === process.env.PREVIEW_TOKEN && trustProxy && previewIpHeader
+      ? previewIpHeader
+      : candidateIP;
+  const iptoken = createHash("sha256")
+    .update(incomingIP + token)
+    .digest("hex");
 
   let rateLimiter: RateLimiterRedis;
   let subscriptionData: { team_id: string } | null = null;

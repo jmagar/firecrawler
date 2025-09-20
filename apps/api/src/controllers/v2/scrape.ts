@@ -14,6 +14,11 @@ import { hasFormatOfType } from "../../lib/format-utils";
 import { TransportableError } from "../../lib/error";
 import { scrapeQueue } from "../../services/worker/nuq";
 import { checkPermissions } from "../../lib/permissions";
+import {
+  shouldExcludeUrl,
+  isLanguageSupported,
+} from "../../lib/language-filter.js";
+import { normalizeLanguage } from "../../lib/strings";
 
 export async function scrapeController(
   req: RequestWithAuth<{}, ScrapeResponse, ScrapeRequest>,
@@ -145,9 +150,42 @@ export async function scrapeController(
     }
   }
 
+  // Check for language mismatch warning
+  const normalizedDefaultLanguage = normalizeLanguage(
+    process.env.DEFAULT_CRAWL_LANGUAGE,
+  );
+  let languageMismatchWarning: string | undefined;
+
+  if (
+    normalizedDefaultLanguage &&
+    normalizedDefaultLanguage !== "all" &&
+    isLanguageSupported(normalizedDefaultLanguage)
+  ) {
+    try {
+      if (shouldExcludeUrl(req.body.url, normalizedDefaultLanguage)) {
+        languageMismatchWarning = `URL may contain content in a language other than '${normalizedDefaultLanguage}'. Consider reviewing the content language or adjusting the DEFAULT_CRAWL_LANGUAGE setting.`;
+
+        logger.info("Language mismatch warning for scrape request", {
+          url: req.body.url,
+          allowedLanguage: normalizedDefaultLanguage,
+          warning: languageMismatchWarning,
+        });
+      }
+    } catch (error) {
+      logger.warn("Failed to check language mismatch for scrape request", {
+        url: req.body.url,
+        defaultLanguage: normalizedDefaultLanguage,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   return res.status(200).json({
     success: true,
     data: doc,
     scrape_id: origin?.includes("website") ? jobId : undefined,
+    ...(languageMismatchWarning && {
+      warning: languageMismatchWarning,
+    }),
   });
 }

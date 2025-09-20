@@ -775,6 +775,57 @@ class PaginationConfig(BaseModel):
     max_results: Optional[int] = Field(default=None, ge=0)
     max_wait_time: Optional[int] = Field(default=None, ge=0)    # seconds
 
+# Vector search types
+class VectorSearchFilters(BaseModel):
+    """Filters for vector search operations."""
+    domain: Optional[str] = None
+    repository: Optional[str] = None
+    repository_org: Optional[str] = None
+    repository_full_name: Optional[str] = None
+    content_type: Optional[Literal["readme", "api-docs", "tutorial", "configuration", "code", "other"]] = None
+    date_range: Optional[Dict[str, str]] = None
+
+class VectorSearchRequest(BaseModel):
+    """Request for vector search operations."""
+    query: str
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    threshold: Optional[float] = None
+    include_content: Optional[bool] = None
+    filters: Optional[VectorSearchFilters] = None
+    origin: Optional[str] = None
+    integration: Optional[str] = None
+
+class VectorSearchResult(BaseModel):
+    """A vector search result."""
+    id: str
+    url: str
+    title: Optional[str] = None
+    content: Optional[str] = None
+    similarity: float
+    metadata: Dict[str, Any]
+
+class VectorSearchTiming(BaseModel):
+    """Timing information for vector search."""
+    query_embedding_ms: int
+    vector_search_ms: int
+    total_ms: int
+
+class VectorSearchData(BaseModel):
+    """Vector search results data."""
+    results: List[VectorSearchResult]
+    query: str
+    total_results: int
+    limit: int
+    offset: int
+    threshold: float
+    threshold_history: Optional[List[float]] = None
+    timing: VectorSearchTiming
+
+class VectorSearchResponse(BaseResponse[VectorSearchData]):
+    """Response for vector search operations."""
+    credits_used: Optional[int] = None
+
 # Response union types
 AnyResponse = Union[
     ScrapeResponse,
@@ -782,5 +833,6 @@ AnyResponse = Union[
     BatchScrapeResponse,
     MapResponse,
     SearchResponse,
+    VectorSearchResponse,
     ErrorResponse,
 ]

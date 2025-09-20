@@ -8356,4 +8356,13 @@ export const modelPrices = {
     litellm_provider: "tei",
     mode: "embedding",
   },
+  "Qwen/Qwen2.5-0.5B-Instruct": {
+    max_tokens: 8192,
+    max_input_tokens: 8192,
+    output_vector_size: 1024,
+    input_cost_per_token: 0.0,
+    output_cost_per_token: 0.0,
+    litellm_provider: "tei",
+    mode: "embedding",
+  },
 };

@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import { logger } from "./logger";
 import { stat } from "fs/promises";
 import { HTML_TO_MARKDOWN_PATH } from "../natives";
+import { cleanMarkdownContent } from "./markdown-cleanup";
 dotenv.config();
 
 // TODO: add a timeout to the Go parser
@@ -64,6 +65,8 @@ export async function parseMarkdown(
 
       markdownContent = processMultiLineLinks(markdownContent);
       markdownContent = removeSkipToContentLinks(markdownContent);
+      // Apply enhanced cleanup for navigation elements
+      markdownContent = cleanMarkdownContent(markdownContent);
       // logger.info(`HTML to Markdown conversion using Go parser successful`);
       return markdownContent;
     }
@@ -110,6 +113,8 @@ export async function parseMarkdown(
     let markdownContent = await turndownService.turndown(html);
     markdownContent = processMultiLineLinks(markdownContent);
     markdownContent = removeSkipToContentLinks(markdownContent);
+    // Apply enhanced cleanup for navigation elements
+    markdownContent = cleanMarkdownContent(markdownContent);
 
     return markdownContent;
   } catch (error) {
