@@ -28,6 +28,9 @@ export async function fire_engine_search(
   abort?: AbortSignal,
 ): Promise<SearchResult[]> {
   if (!useFireEngine) {
+    logger.info(
+      "(Search) Fire engine disabled, results might differ from cloud offering.",
+    );
     return [];
   }
 

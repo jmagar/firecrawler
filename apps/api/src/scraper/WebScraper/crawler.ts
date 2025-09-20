@@ -3,7 +3,6 @@ import { load } from "cheerio"; // rustified
 import { URL } from "url";
 import { getLinksFromSitemap } from "./sitemap";
 import robotsParser, { Robot } from "robots-parser";
-import psl from "psl";
 import { getURLDepth } from "./utils/maxDepthUtils";
 import { logger as _logger } from "../../lib/logger";
 import { redisEvictConnection } from "../../services/redis";
@@ -307,11 +306,7 @@ export class WebCrawler {
           }
         }
 
-        const isAllowed = this.ignoreRobotsTxt
-          ? true
-          : ((this.robots.isAllowed(link, "FireCrawlAgent") ||
-              this.robots.isAllowed(link, "FirecrawlAgent")) ??
-            true);
+        const isAllowed = this.isRobotsAllowed(link, this.ignoreRobotsTxt);
         // Check if the link is disallowed by robots.txt
         if (!isAllowed) {
           this.logger.debug(`Link disallowed by robots.txt: ${link}`, {
@@ -389,10 +384,11 @@ export class WebCrawler {
     const checker = createRobotsChecker(this.initialUrl, txt);
     this.robots = checker.robots;
     this.robotsTxtUrl = checker.robotsTxtUrl;
-    const delay =
-      this.robots.getCrawlDelay("FireCrawlAgent") ||
-      this.robots.getCrawlDelay("FirecrawlAgent");
-    this.robotsCrawlDelay = delay !== undefined ? delay : null;
+    const delayValues = this.robotsUserAgents
+      .map(ua => this.robots.getCrawlDelay(ua))
+      .filter((d): d is number => typeof d === "number");
+    this.robotsCrawlDelay =
+      delayValues.length > 0 ? Math.max(...delayValues) : null;
 
     const sitemaps = this.robots.getSitemaps();
     this.logger.debug("Processed robots.txt", {

@@ -7,10 +7,13 @@ comprehensive filtering, response size management, and pagination following
 FastMCP patterns.
 """
 
-import logging
 import json
+import logging
+import os
+import re
 from typing import Annotated, Any, Literal
 
+import asyncpg
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from firecrawl.v2.types import (
@@ -27,6 +30,37 @@ from ..core.client import get_firecrawl_client
 from ..core.exceptions import handle_firecrawl_error
 
 logger = logging.getLogger(__name__)
+
+
+async def get_document_by_id(document_id: str) -> dict[str, Any] | None:
+    """
+    Retrieve document from vector database by ID.
+    
+    Args:
+        document_id: The document ID (job_id in database)
+        
+    Returns:
+        Document data if found, None if not found
+        
+    Raises:
+        ToolError: If database connection fails or configuration is missing
+    """
+    connection_string = os.getenv("FIRECRAWLER_NUQ_DATABASE_URL")
+    if not connection_string:
+        raise ToolError("Vector database not configured (FIRECRAWLER_NUQ_DATABASE_URL missing)")
+
+    try:
+        conn = await asyncpg.connect(connection_string)
+        try:
+            row = await conn.fetchrow(
+                "SELECT job_id, metadata, content, created_at FROM nuq.document_vectors WHERE job_id = $1",
+                document_id
+            )
+            return dict(row) if row else None
+        finally:
+            await conn.close()
+    except Exception as e:
+        raise ToolError(f"Database connection error: {e!s}") from e
 
 
 def estimate_response_tokens(data: Any) -> int:
@@ -52,7 +86,7 @@ def estimate_response_tokens(data: Any) -> int:
         else:
             # Fallback to string representation
             text = json.dumps(data, default=str, ensure_ascii=False)
-        
+
         # Conservative estimate: 3 characters per token
         return len(text) // 3
     except Exception:
@@ -85,10 +119,10 @@ def optimize_response_size(
         "optimization_level": 0,
         "actions_taken": []
     }
-    
+
     if current_estimate <= target_tokens:
         return vector_data, optimization_metadata
-    
+
     # Make a copy to avoid modifying original data
     if hasattr(vector_data, 'model_copy'):
         optimized_data = vector_data.model_copy(deep=True)
@@ -96,24 +130,24 @@ def optimize_response_size(
         # Fallback for non-Pydantic objects
         import copy
         optimized_data = copy.deepcopy(vector_data)
-    
+
     # Level 1: Reduce content truncation to 250 chars
     if hasattr(optimized_data, 'results') and optimized_data.results:
         for result in optimized_data.results:
             if hasattr(result, 'content') and result.content and len(result.content) > 250:
                 result.content = result.content[:250] + "..."
-        
+
         new_estimate = estimate_response_tokens(optimized_data)
         if new_estimate <= target_tokens:
             optimization_metadata["optimization_level"] = 1
             optimization_metadata["actions_taken"].append("truncated_content_250")
             optimization_metadata["final_estimate"] = new_estimate
             return optimized_data, optimization_metadata
-    
+
     # Level 2: Limit results to min(limit, 5)
     if hasattr(optimized_data, 'results') and optimized_data.results and len(optimized_data.results) > 5:
         optimized_data.results = optimized_data.results[:5]
-        
+
         new_estimate = estimate_response_tokens(optimized_data)
         if new_estimate <= target_tokens:
             optimization_metadata["optimization_level"] = 2
@@ -122,7 +156,7 @@ def optimize_response_size(
             optimization_metadata["actions_taken"].append("limited_to_5_results")
             optimization_metadata["final_estimate"] = new_estimate
             return optimized_data, optimization_metadata
-    
+
     # Level 3: Return titles, similarity, URLs only
     if hasattr(optimized_data, 'results') and optimized_data.results:
         for result in optimized_data.results:
@@ -134,7 +168,7 @@ def optimize_response_size(
                 # Keep only sourceURL from metadata
                 source_url = result.metadata.get("sourceURL")
                 result.metadata = {"sourceURL": source_url} if source_url else {}
-        
+
         new_estimate = estimate_response_tokens(optimized_data)
         optimization_metadata["optimization_level"] = 3
         if "truncated_content_250" not in optimization_metadata["actions_taken"]:
@@ -144,7 +178,7 @@ def optimize_response_size(
         optimization_metadata["actions_taken"].append("minimal_fields_only")
         optimization_metadata["final_estimate"] = new_estimate
         return optimized_data, optimization_metadata
-    
+
     # If we get here, return what we have
     optimization_metadata["final_estimate"] = estimate_response_tokens(optimized_data)
     return optimized_data, optimization_metadata
@@ -308,55 +342,55 @@ async def paginate_vector_search(
         "total_results": 0,
         "stopped_reason": None
     }
-    
+
     max_pages = pagination_config.get("max_pages", 10)
     max_results = pagination_config.get("max_results")
     base_limit = search_request.get("limit", 10)
     current_offset = search_request.get("offset", 0)
-    
+
     page = 0
     while page < max_pages:
         try:
             # Update offset for current page
             current_request = search_request.copy()
             current_request["offset"] = current_offset + (page * base_limit)
-            
+
             await ctx.info(f"Fetching page {page + 1} with offset {current_request['offset']}")
-            
+
             # Perform vector search for this page
             page_data = await _call_vector_search(client, current_request, ctx)
-            
+
             if not page_data or not hasattr(page_data, 'results') or not page_data.results:
                 pagination_metadata["stopped_reason"] = "no_more_results"
                 break
-            
+
             # Add results to aggregated list
             all_results.extend(page_data.results)
             pagination_metadata["pages_fetched"] = page + 1
             pagination_metadata["total_results"] = len(all_results)
-            
+
             # Check if we've hit max_results limit
             if max_results and len(all_results) >= max_results:
                 all_results = all_results[:max_results]
                 pagination_metadata["total_results"] = len(all_results)
                 pagination_metadata["stopped_reason"] = "max_results_reached"
                 break
-            
+
             # If this page returned fewer results than limit, we've reached the end
             if len(page_data.results) < base_limit:
                 pagination_metadata["stopped_reason"] = "end_of_results"
                 break
-            
+
             page += 1
-            
+
         except Exception as e:
             await ctx.error(f"Error fetching page {page + 1}: {e}")
             pagination_metadata["stopped_reason"] = f"error_on_page_{page + 1}"
             break
-    
+
     if pagination_metadata["stopped_reason"] is None:
         pagination_metadata["stopped_reason"] = "max_pages_reached"
-    
+
     return all_results, pagination_metadata
 
 
@@ -391,10 +425,10 @@ def _serialize_vector_data(
             }
 
             if hasattr(vector_data, 'timing'):
-                data["timing"] = getattr(vector_data, 'timing')
+                data["timing"] = vector_data.timing
 
             if hasattr(vector_data, 'pagination'):
-                data["pagination"] = getattr(vector_data, 'pagination')
+                data["pagination"] = vector_data.pagination
 
         threshold_history = getattr(vector_data, 'threshold_history', None)
         if threshold_history:
@@ -686,7 +720,7 @@ def register_firerag_tools(mcp: FastMCP) -> None:
                 response_payload["optimization_metadata"] = optimization_metadata
 
             if hasattr(vector_data, 'pagination'):
-                response_payload["pagination_metadata"] = getattr(vector_data, 'pagination')
+                response_payload["pagination_metadata"] = vector_data.pagination
 
             await ctx.info("FireRAG search complete")
 
@@ -698,6 +732,107 @@ def register_firerag_tools(mcp: FastMCP) -> None:
         except Exception as e:
             await ctx.error(f"Unexpected error in FireRAG: {e}")
             raise ToolError(f"FireRAG search failed: {e!s}")
+
+    @mcp.tool(
+        name="retrieve",
+        description="Retrieve complete document information by ID from vector search results",
+        annotations={
+            "title": "Document Retrieval",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "openWorldHint": False,
+            "idempotentHint": True
+        }
+    )
+    async def retrieve(
+        ctx: Context,
+        document_id: Annotated[str, Field(
+            description="Document ID from firerag search results (36-character UUID format)",
+            pattern=r"^[a-f0-9\-]{36}$"
+        )]
+    ) -> dict[str, Any]:
+        """
+        Retrieve complete document information by ID from vector database.
+
+        This tool fetches full document details using the document ID returned
+        from firerag search results. It provides access to complete content and
+        metadata for a specific document.
+
+        Args:
+            ctx: FastMCP context for logging and progress reporting
+            document_id: 36-character UUID format document identifier
+
+        Returns:
+            Dictionary containing complete document information
+
+        Raises:
+            ToolError: If document not found, invalid ID format, or database error
+        """
+        try:
+            await ctx.info(f"Retrieving document by ID: {document_id}")
+
+            # Validate UUID format
+            if not document_id or not document_id.strip():
+                raise ToolError("Document ID cannot be empty")
+
+            if not re.match(r"^[a-f0-9\-]{36}$", document_id):
+                raise ToolError("Invalid document ID format. Expected 36-character UUID format")
+
+            # Retrieve document from database
+            document_data = await get_document_by_id(document_id)
+
+            if not document_data:
+                raise ToolError(f"Document not found with ID: {document_id}")
+
+            await ctx.info("Document retrieved successfully")
+
+            # Parse metadata if it's a JSON string
+            metadata = document_data.get("metadata", {})
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except json.JSONDecodeError:
+                    metadata = {}
+
+            # Construct response matching firerag pattern
+            response = {
+                "success": True,
+                "document": {
+                    "id": document_data["job_id"],
+                    "url": metadata.get("sourceURL"),
+                    "title": metadata.get("title"),
+                    "content": document_data.get("content"),
+                    "metadata": {
+                        "sourceURL": metadata.get("sourceURL"),
+                        "scrapedAt": metadata.get("scrapedAt"),
+                        "domain": metadata.get("domain"),
+                        "repositoryName": metadata.get("repositoryName"),
+                        "repositoryOrg": metadata.get("repositoryOrg"),
+                        "repositoryFullName": metadata.get("repositoryFullName"),
+                        "filePath": metadata.get("filePath"),
+                        "branchVersion": metadata.get("branchVersion"),
+                        "contentType": metadata.get("contentType"),
+                        "wordCount": metadata.get("wordCount"),
+                        **{k: v for k, v in metadata.items() if k not in [
+                            "sourceURL", "scrapedAt", "domain", "repositoryName",
+                            "repositoryOrg", "repositoryFullName", "filePath",
+                            "branchVersion", "contentType", "wordCount"
+                        ]}
+                    },
+                    "created_at": document_data.get("created_at").isoformat() if document_data.get("created_at") else None,
+                },
+                "message": "Document retrieved successfully"
+            }
+
+            await ctx.info(f"Document retrieval complete for ID: {document_id}")
+            return response
+
+        except ToolError:
+            # Re-raise ToolErrors as-is
+            raise
+        except Exception as e:
+            await ctx.error(f"Unexpected error retrieving document {document_id}: {e}")
+            raise ToolError(f"Document retrieval failed: {e!s}")
 
 
 # Export the registration function

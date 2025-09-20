@@ -16,9 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
-from fastmcp.exceptions import ToolError
 
-from ..core.config import MCPConfig
 from ..core.exceptions import MCPError
 
 logger = logging.getLogger(__name__)
@@ -327,7 +325,7 @@ class LoggingMiddleware(Middleware):
                 await context.fastmcp_context.warning(message)
             elif level == "error":
                 await context.fastmcp_context.error(message)
-        
+
         # Also log to file if file handler is configured for local debugging
         if self.file_handler:
             timestamp = datetime.now(UTC).isoformat()

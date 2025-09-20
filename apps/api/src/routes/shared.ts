@@ -432,8 +432,22 @@ export function yamlConfigDefaultsMiddleware(
 
         // Filter out protected fields before merging
         const filteredDefaults = filterProtectedFields(routeDefaults);
+
+        // Translate field names for vector-search route
+        // The embeddings config uses minSimilarityThreshold but v2 API expects threshold
+        let translatedDefaults = filteredDefaults;
+        if (
+          routeType === "vector-search" &&
+          filteredDefaults.minSimilarityThreshold !== undefined
+        ) {
+          translatedDefaults = { ...filteredDefaults };
+          translatedDefaults.threshold =
+            filteredDefaults.minSimilarityThreshold;
+          delete translatedDefaults.minSimilarityThreshold;
+        }
+
         // Deep merge with YAML configuration taking priority
-        req.body = deepMergeWithPriority(req.body, filteredDefaults);
+        req.body = deepMergeWithPriority(req.body, translatedDefaults);
 
         req.yamlConfigMetadata.configApplied = true;
         req.yamlConfigMetadata.configSource = "yaml";

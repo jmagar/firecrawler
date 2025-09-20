@@ -8,10 +8,11 @@ export interface TestEchoServer {
   close: () => Promise<void>;
 }
 
-export async function createTestEchoServer(): Promise<TestEchoServer> {
+export function createTestEchoServer(): Promise<TestEchoServer> {
   const app = express();
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  app.disable("x-powered-by");
+  app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
   // Echo headers endpoint (mimics httpbin.org/headers)
   app.get("/headers", (req, res) => {
@@ -43,7 +44,7 @@ export async function createTestEchoServer(): Promise<TestEchoServer> {
         <body>
           <h1>Test Echo Server</h1>
           <p>This is a test server for E2E tests.</p>
-          <div id="headers">${JSON.stringify(req.headers).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+          <div id="headers">${JSON.stringify(req.headers).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
         </body>
       </html>
     `);
@@ -56,13 +57,14 @@ export async function createTestEchoServer(): Promise<TestEchoServer> {
         const port = address.port;
         resolve({
           port,
-          url: `http://localhost:${port}`,
+          url: `http://127.0.0.1:${port}`,
           server,
           close: () =>
-            new Promise(resolveClose => {
+            new Promise((resolveClose, rejectClose) => {
               server.close(error => {
                 if (error) {
                   console.error("Test server close error:", error);
+                  return rejectClose(error);
                 }
                 resolveClose();
               });

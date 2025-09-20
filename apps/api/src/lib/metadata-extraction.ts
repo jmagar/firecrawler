@@ -367,8 +367,9 @@ function extractDomainMetadata(url: string): DomainMetadata {
         )
     ) {
       isDocumentationSite = true;
-      if (subdomain === "api") documentationType = "api";
-      else if (subdomain === "docs" || subdomain === "documentation")
+      const segs = subdomain.split(".");
+      if (segs.includes("api")) documentationType = "api";
+      else if (segs.some(s => s === "docs" || s === "documentation"))
         documentationType = "docs";
       else documentationType = "docs";
     }
@@ -428,7 +429,7 @@ function detectProgrammingLanguage(
   if (filePath) {
     const base = filePath.split("/").pop()!;
     // Common extensionless tech files
-    if (/^dockerfile(\.\..+)?$/i.test(base)) return "dockerfile";
+    if (/^dockerfile(\..+)?$/i.test(base)) return "dockerfile";
     if (/^makefile$/i.test(base)) return "makefile";
     if (
       /^gemfile$/i.test(base) ||

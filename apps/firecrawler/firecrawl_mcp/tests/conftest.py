@@ -8,13 +8,13 @@ the Firecrawler MCP server following FastMCP in-memory testing patterns.
 import asyncio
 import os
 import tempfile
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastmcp import Client, FastMCP
+from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from firecrawl_mcp.core.client import reset_client
@@ -53,9 +53,9 @@ def clean_environment():
     """Simple environment cleanup following FastMCP self-contained patterns."""
     # Reset the global client before each test
     reset_client()
-    
+
     yield
-    
+
     # Reset global client after test
     reset_client()
 

@@ -11,18 +11,18 @@ x-common-service: &common-service
       soft: 65535
       hard: 65535
   networks:
-    - backend
+    - firecrawler
   extra_hosts:
     - "host.docker.internal:host-gateway"
 
 x-common-env: &common-env
-  REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-  REDIS_RATE_LIMIT_URL: ${REDIS_URL:-redis://redis:6379}
-  PLAYWRIGHT_MICROSERVICE_URL: ${PLAYWRIGHT_MICROSERVICE_URL:-http://playwright-service:3000/scrape}
-  NUQ_DATABASE_URL: postgres://postgres:postgres@nuq-postgres:5432/postgres
+  REDIS_URL: ${REDIS_URL:-redis://firecrawl-redis:6379}
+  REDIS_RATE_LIMIT_URL: ${REDIS_URL:-redis://firecrawl-redis:6379}
+  PLAYWRIGHT_MICROSERVICE_URL: ${PLAYWRIGHT_MICROSERVICE_URL:-http://firecrawl-playwright:3000/scrape}
+  NUQ_DATABASE_URL: postgres://postgres:postgres@firecrawl-postgres:5432/postgres
   OPENAI_API_KEY: ${OPENAI_API_KEY}
   MODEL_NAME: ${MODEL_NAME}
-  MODEL_EMBEDDING_NAME: ${MODEL_EMBEDDING_NAME} 
+  MODEL_EMBEDDING_NAME: ${MODEL_EMBEDDING_NAME:-Qwen/Qwen3-Embedding-0.6B} 
   # HuggingFace TEI + Vector Storage Configuration
   TEI_URL: ${TEI_URL:-http://tei-service:8080}
   ENABLE_VECTOR_STORAGE: ${ENABLE_VECTOR_STORAGE:-true}
@@ -39,19 +39,23 @@ x-common-env: &common-env
   DEFAULT_CRAWL_LANGUAGE: ${DEFAULT_CRAWL_LANGUAGE}
 
 services:
-  playwright-service:
+  firecrawl-playwright:
     # NOTE: If you don't want to build the service locally,
     # uncomment the build: statement and comment out the image: statement
     # image: ghcr.io/firecrawl/playwright-service:latest
     build: apps/playwright-service-ts
+    container_name: firecrawl-playwright
+    restart: unless-stopped
     environment:
       PORT: 3000
       BLOCK_MEDIA: ${BLOCK_MEDIA}
     networks:
-      - backend
+      - firecrawler
 
-  api:
+  firecrawl-api:
     <<: *common-service
+    container_name: firecrawl-api
+    restart: unless-stopped
     environment:
       <<: *common-env
       HOST: "0.0.0.0"
@@ -59,11 +63,11 @@ services:
       WORKER_PORT: ${WORKER_PORT:-3005}
       ENV: local
     depends_on:
-      nuq-postgres:
+      firecrawl-postgres:
         condition: service_healthy
-      redis:
+      firecrawl-redis:
         condition: service_started
-      playwright-service:
+      firecrawl-playwright:
         condition: service_started
     ports:
       - "${PORT:-3002}:${INTERNAL_PORT:-3002}"
@@ -71,27 +75,30 @@ services:
       - ./defaults.yaml:/app/defaults.yaml:ro
     command: node dist/src/harness.js --start-docker
 
-  redis:
+  firecrawl-redis:
     # NOTE: If you want to use Valkey (open source) instead of Redis (source available),
     # uncomment the Valkey statement and comment out the Redis statement.
     # Using Valkey with Firecrawl is untested and not guaranteed to work. Use with caution.
     image: redis:alpine
     # image: valkey/valkey:alpine
-
+    container_name: firecrawl-redis
+    restart: unless-stopped
     networks:
-      - backend
+      - firecrawler
     command: redis-server --bind 0.0.0.0
   
-  nuq-postgres:
+  firecrawl-postgres:
     build: apps/nuq-postgres
+    container_name: firecrawl-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     volumes:
-      - nuq_postgres_data:/var/lib/postgresql/data
+      - firecrawl_postgres_data:/var/lib/postgresql/data
     networks:
-      - backend
+      - firecrawler
     ports:
       - "5432:5432"
     healthcheck:
@@ -101,9 +108,10 @@ services:
       retries: 5
 
 networks:
-  backend:
+  firecrawler:
     driver: bridge
 
 volumes:
-  nuq_postgres_data:
+  firecrawl_postgres_data:
     driver: local
+

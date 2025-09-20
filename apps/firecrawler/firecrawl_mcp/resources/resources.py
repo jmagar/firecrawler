@@ -26,7 +26,7 @@ from fastmcp.exceptions import ResourceError
 
 from ..core.client import get_firecrawl_client
 from ..core.config import load_config
-from ..core.exceptions import MCPClientError, mcp_log_error
+from ..core.exceptions import MCPClientError
 
 logger = logging.getLogger(__name__)
 
@@ -730,7 +730,7 @@ async def get_logs_by_level(level: str, ctx: Context) -> dict[str, Any]:
 
     config = load_config()
     logs_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "logs")
-    
+
     filtered_logs = {
         "level": level.lower(),
         "entries": [],
@@ -769,7 +769,7 @@ async def get_logs_by_level(level: str, ctx: Context) -> dict[str, Any]:
 async def get_component_status(component: str, ctx: Context) -> dict[str, Any]:
     """Get status for a specific server component."""
     component = component.lower()
-    
+
     if component == "api":
         return await get_api_status(ctx)
     elif component == "system":
@@ -788,7 +788,7 @@ async def get_component_status(component: str, ctx: Context) -> dict[str, Any]:
             "status": "enabled" if config.cache_enabled else "disabled",
             "timestamp": config.get_current_timestamp()
         }
-        await ctx.info(f"Cache component status retrieved")
+        await ctx.info("Cache component status retrieved")
         return cache_status
     elif component == "auth":
         config = load_config()
@@ -800,7 +800,7 @@ async def get_component_status(component: str, ctx: Context) -> dict[str, Any]:
             "status": "enabled" if config.auth_enabled else "disabled",
             "timestamp": config.get_current_timestamp()
         }
-        await ctx.info(f"Auth component status retrieved")
+        await ctx.info("Auth component status retrieved")
         return auth_status
     else:
         raise ResourceError(f"Unknown component: {component}. Available components: api, system, mcp, cache, auth")
@@ -1034,17 +1034,17 @@ def setup_resources(server_mcp: FastMCP) -> None:
 
 # Clean module interface
 __all__ = [
-    "setup_resources",
-    "get_server_config",
-    "get_environment_config", 
-    "get_api_status",
-    "get_system_status",
-    "get_server_status",
-    "get_usage_statistics",
     "get_active_operations",
-    "get_recent_logs",
-    "get_logs_by_level",
+    "get_api_status",
     "get_component_status",
-    "get_config_section"
+    "get_config_section",
+    "get_environment_config",
+    "get_logs_by_level",
+    "get_recent_logs",
+    "get_server_config",
+    "get_server_status",
+    "get_system_status",
+    "get_usage_statistics",
+    "setup_resources"
 ]
 

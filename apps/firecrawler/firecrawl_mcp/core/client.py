@@ -34,33 +34,33 @@ def get_firecrawl_client() -> FirecrawlClient:
         # Get configuration from environment variables
         api_key = os.getenv("FIRECRAWL_API_KEY")
         api_url = os.getenv("FIRECRAWL_API_URL", "https://api.firecrawl.dev")
-        
+
         # Check if this is a self-hosted instance (no API key required)
         is_self_hosted = not api_url.startswith("https://api.firecrawl.dev")
-        
+
         if not api_key and not is_self_hosted:
             raise ToolError(
                 "FIRECRAWL_API_KEY environment variable is required for cloud API. "
                 "Please configure your API key or use FIRECRAWL_API_URL for self-hosted instances."
             )
-        
+
         # Parse optional numeric configuration
         timeout = None
         max_retries = 3
         backoff_factor = 0.5
-        
+
         try:
             if timeout_str := os.getenv("FIRECRAWL_TIMEOUT"):
                 timeout = float(timeout_str)
         except ValueError:
             logger.warning(f"Invalid FIRECRAWL_TIMEOUT value: {timeout_str}, using default")
-        
+
         try:
             if retries_str := os.getenv("FIRECRAWL_MAX_RETRIES"):
                 max_retries = int(retries_str)
         except ValueError:
             logger.warning(f"Invalid FIRECRAWL_MAX_RETRIES value: {retries_str}, using default")
-        
+
         try:
             if backoff_str := os.getenv("FIRECRAWL_BACKOFF_FACTOR"):
                 backoff_factor = float(backoff_str)
@@ -71,7 +71,7 @@ def get_firecrawl_client() -> FirecrawlClient:
         # For self-hosted instances, use a dummy API key if none provided
         if is_self_hosted and not api_key:
             api_key = "dummy-key-for-self-hosted"
-        
+
         client = FirecrawlClient(
             api_key=api_key,
             api_url=api_url,
@@ -79,7 +79,7 @@ def get_firecrawl_client() -> FirecrawlClient:
             max_retries=max_retries,
             backoff_factor=backoff_factor
         )
-        
+
         logger.debug(f"Created Firecrawl client for {api_url}")
         return client
 
@@ -109,16 +109,16 @@ def get_client_status() -> dict[str, Any]:
     """
     try:
         client = get_firecrawl_client()
-        
+
         # Determine if this is likely a self-hosted instance
         # Check both FIRECRAWL_API_URL and FIRECRAWL_BASE_API (for compatibility)
         api_url = os.getenv("FIRECRAWL_API_URL") or os.getenv("FIRECRAWL_BASE_API", "https://api.firecrawl.dev")
         is_likely_self_hosted = not api_url.startswith("https://api.firecrawl.dev")
-        
+
         # Initialize result values
         connection_test = "failed"
         remaining_credits = "unknown"
-        
+
         if is_likely_self_hosted:
             # For self-hosted instances, try alternative health checks
             try:
@@ -128,7 +128,7 @@ def get_client_status() -> dict[str, Any]:
                 logger.debug("Self-hosted health check passed via concurrency endpoint")
             except Exception as concurrency_error:
                 logger.debug(f"Concurrency check failed: {concurrency_error}")
-                
+
                 # Approach 2: Try a validation check with invalid data
                 # This should fail with a validation error, not auth error
                 try:
@@ -151,7 +151,7 @@ def get_client_status() -> dict[str, Any]:
             except Exception as credit_error:
                 connection_test = f"failed: {credit_error}"
                 logger.warning(f"Cloud health check failed: {credit_error}")
-        
+
         return {
             "status": "connected" if connection_test == "passed" else "error",
             "api_url": api_url,
@@ -160,7 +160,7 @@ def get_client_status() -> dict[str, Any]:
             "remaining_credits": remaining_credits,
             "connection_test": connection_test
         }
-        
+
     except Exception as e:
         logger.error(f"Client status check failed: {e}")
         raise ToolError(f"Failed to get client status: {e}") from e

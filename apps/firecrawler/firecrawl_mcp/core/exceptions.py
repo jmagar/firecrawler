@@ -41,7 +41,7 @@ def handle_firecrawl_error(
     message = str(error)
     if context:
         message = f"{message} (Context: {context})"
-    
+
     # Map specific error types to more informative messages
     error_type_messages = {
         BadRequestError: "Invalid request parameters",
@@ -52,10 +52,10 @@ def handle_firecrawl_error(
         RateLimitError: "Rate limit exceeded - please wait before retrying",
         InternalServerError: "Internal server error occurred",
     }
-    
+
     error_prefix = error_type_messages.get(type(error), "Firecrawl API error")
     enhanced_message = f"{error_prefix}: {message}"
-    
+
     logger.error(f"Converted Firecrawl error: {type(error).__name__} -> ToolError")
     return ToolError(enhanced_message)
 
@@ -76,7 +76,7 @@ def create_tool_error(message: str, details: dict[str, Any] | None = None) -> To
         enhanced_message = f"{message} (Details: {detail_str})"
     else:
         enhanced_message = message
-        
+
     return ToolError(enhanced_message)
 
 
@@ -107,7 +107,7 @@ def mcp_log_error(error: Exception, context: dict[str, Any] | None = None) -> No
 # Backward compatibility - deprecated error classes
 class MCPError(Exception):
     """DEPRECATED: Use ToolError instead."""
-    
+
     def __init__(self, message: str, **kwargs):
         super().__init__(message)
         logger.warning("MCPError is deprecated, use ToolError instead")

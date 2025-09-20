@@ -11,6 +11,7 @@ import { deleteKey, getValue } from "../services/redis";
 import { setValue } from "../services/redis";
 import { validate } from "uuid";
 import * as Sentry from "@sentry/node";
+import { createHash } from "node:crypto";
 import { AuthCreditUsageChunk, AuthCreditUsageChunkFromTeam } from "./v1/types";
 // const { data, error } = await supabase_service
 //     .from('api_keys')
@@ -221,13 +222,12 @@ export async function getACUC(
       if (retries === maxRetries) {
         const originalError =
           error instanceof Error ? error : new Error(String(error));
-        const wrappedError = new Error(
+        throw new Error(
           `Failed to retrieve authentication and credit usage data after ${maxRetries} attempts: ${
             error instanceof Error ? error.message : String(error)
           }`,
+          { cause: originalError },
         );
-        (wrappedError as any).cause = originalError;
-        throw wrappedError;
       }
 
       // Wait for a short time before retrying
@@ -355,13 +355,12 @@ export async function getACUCTeam(
       if (retries === maxRetries) {
         const originalError =
           error instanceof Error ? error : new Error(String(error));
-        const wrappedError = new Error(
+        throw new Error(
           `Failed to retrieve authentication and credit usage data after ${maxRetries} attempts: ${
             error instanceof Error ? error.message : String(error)
           }`,
+          { cause: originalError },
         );
-        (wrappedError as any).cause = originalError;
-        throw wrappedError;
       }
 
       // Wait for a short time before retrying
@@ -461,7 +460,9 @@ async function supaAuthenticateUser(
     token === process.env.PREVIEW_TOKEN && trustProxy && previewIpHeader
       ? previewIpHeader
       : candidateIP;
-  const iptoken = incomingIP + token;
+  const iptoken = createHash("sha256")
+    .update(incomingIP + token)
+    .digest("hex");
 
   let rateLimiter: RateLimiterRedis;
   let subscriptionData: { team_id: string } | null = null;

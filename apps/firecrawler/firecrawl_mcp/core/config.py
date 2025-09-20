@@ -43,7 +43,7 @@ def get_env_int(key: str, default: int) -> int:
     value = os.getenv(key)
     if value is None:
         return default
-    
+
     try:
         return int(value)
     except ValueError:
@@ -65,7 +65,7 @@ def get_env_float(key: str, default: float) -> float:
     value = os.getenv(key)
     if value is None:
         return default
-    
+
     try:
         return float(value)
     except ValueError:
@@ -99,16 +99,16 @@ def validate_environment() -> dict[str, Any]:
     """
     issues = []
     recommendations = []
-    
+
     # Check required configuration
     if not os.getenv("FIRECRAWL_API_KEY"):
         issues.append("FIRECRAWL_API_KEY is required but not set")
         recommendations.append("Set FIRECRAWL_API_KEY environment variable")
-    
+
     # Check optional but useful configuration
     if not os.getenv("OPENAI_API_KEY") and not os.getenv("OLLAMA_BASE_URL"):
         recommendations.append("Consider setting OPENAI_API_KEY or OLLAMA_BASE_URL for LLM features")
-    
+
     return {
         "valid": len(issues) == 0,
         "issues": issues,
@@ -124,15 +124,15 @@ class MCPConfig:
     
     Use environment functions directly instead of this class.
     """
-    
+
     def __init__(self):
         logger.warning("MCPConfig is deprecated, use environment functions directly")
-        
+
     def is_valid(self) -> bool:
         return validate_environment()["valid"]
-        
+
     def get_current_timestamp(self) -> str:
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
         return datetime.now(UTC).isoformat()
 
 

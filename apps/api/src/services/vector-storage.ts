@@ -241,7 +241,7 @@ export async function storeDocumentVector(
 
   if (!embedding || embedding.length !== VECTOR_DIMENSION) {
     throw new Error(
-      `Invalid embedding dimension: expected ${VECTOR_DIMENSION}, got ${embedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly (e.g., 1024 for Qwen/Qwen2.5-0.5B-Instruct).`,
+      `Invalid embedding dimension: expected ${VECTOR_DIMENSION}, got ${embedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly (e.g., 1024 for Qwen/Qwen3-Embedding-0.6B).`,
     );
   }
   if (!embedding.every(n => Number.isFinite(n))) {
@@ -318,7 +318,7 @@ export async function searchSimilarVectors(
 
   if (!queryEmbedding || queryEmbedding.length !== VECTOR_DIMENSION) {
     throw new Error(
-      `Invalid query embedding dimension: expected ${VECTOR_DIMENSION}, got ${queryEmbedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly (e.g., 1024 for Qwen/Qwen2.5-0.5B-Instruct).`,
+      `Invalid query embedding dimension: expected ${VECTOR_DIMENSION}, got ${queryEmbedding?.length || 0}. Ensure MODEL_EMBEDDING_NAME/provider emit ${VECTOR_DIMENSION} dims or set VECTOR_DIMENSION accordingly (e.g., 1024 for Qwen/Qwen3-Embedding-0.6B).`,
     );
   }
   if (!queryEmbedding.every(n => Number.isFinite(n))) {

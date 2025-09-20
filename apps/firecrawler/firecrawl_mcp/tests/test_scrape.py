@@ -32,17 +32,17 @@ class TestScrapeTools:
     def scrape_server(self, test_env):
         """Create FastMCP server with scraping tools following FastMCP patterns."""
         server = FastMCP("TestScrapeServer")
-        
+
         @server.tool
         def scrape(url: str, options: dict = None) -> str:
             """Test scrape tool."""
             return f"Scraped content from {url} with options {options}"
-        
+
         @server.tool
         def batch_scrape(urls: list[str], options: dict = None) -> str:
             """Test batch scrape tool."""
             return f"Batch scraping {len(urls)} URLs with options {options}"
-        
+
         return server
 
     # Client fixture removed - create clients within test functions using:

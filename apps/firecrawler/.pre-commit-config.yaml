@@ -5,24 +5,24 @@
 repos:
   # Ruff for linting and formatting
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.13.1
     hooks:
-      # Run the formatter first
-      - id: ruff-format
-        name: ruff-format
-        description: "Run Ruff formatter"
-        types_or: [python, pyi]
-        
-      # Run the linter after formatting
-      - id: ruff
-        name: ruff-lint
+      # Run the linter first (with --fix)
+      - id: ruff-check
+        name: ruff-check
         description: "Run Ruff linter"
         args: ["--fix", "--exit-non-zero-on-fix"]
         types_or: [python, pyi]
 
+      # Run the formatter after linting
+      - id: ruff-format
+        name: ruff-format
+        description: "Run Ruff formatter"
+        types_or: [python, pyi]
+
   # MyPy for static type checking
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.8.0
+    rev: v1.18.2
     hooks:
       - id: mypy
         name: mypy-type-check
@@ -30,6 +30,8 @@ repos:
         files: ^apps/firecrawler/firecrawl_mcp/
         exclude: ^apps/firecrawler/firecrawl_mcp/tests/
         pass_filenames: false
+        always_run: true
+        stages: [push]
         additional_dependencies:
           - fastmcp==2.2.1
           - pydantic==2.11.3
@@ -88,7 +90,7 @@ repos:
 
   # Security checking with bandit
   - repo: https://github.com/PyCQA/bandit
-    rev: 1.7.9
+    rev: 1.8.6
     hooks:
       - id: bandit
         name: bandit-security-check

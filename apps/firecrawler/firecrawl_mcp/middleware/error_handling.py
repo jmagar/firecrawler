@@ -17,14 +17,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
-from fastmcp.exceptions import ToolError, ResourceError, PromptError
-
 from firecrawl.v2.utils.error_handler import (
     FirecrawlError,
     RequestTimeoutError,
 )
 
-from ..core.config import MCPConfig
 from ..core.exceptions import (
     MCPAuthenticationError,
     MCPClientError,
@@ -33,8 +30,8 @@ from ..core.exceptions import (
     MCPTimeoutError,
     MCPValidationError,
     handle_firecrawl_error,
+    mcp_log_error,
 )
-from ..core.exceptions import mcp_log_error
 
 logger = logging.getLogger(__name__)
 

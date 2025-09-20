@@ -5,13 +5,13 @@ These types provide the same functionality but generate much smaller schemas
 by avoiding complex nested Pydantic models that bloat the MCP protocol.
 """
 
-from typing import Any, TypedDict, Optional
+from typing import Any, TypedDict
 
 
 class SimplifiedScrapeOptions(TypedDict, total=False):
     """Simplified scrape options - avoids complex nested schemas."""
     formats: list[str]
-    headers: dict[str, str]  
+    headers: dict[str, str]
     only_main_content: bool
     timeout: int
     mobile: bool

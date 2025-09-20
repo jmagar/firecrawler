@@ -172,7 +172,7 @@ export function validateModelConfiguration(): {
     if (provider === "tei") {
       finalModelName = "Qwen/Qwen3-Embedding-0.6B";
     } else {
-      finalModelName = "text-embedding-3-small";
+      finalModelName = "Qwen/Qwen3-Embedding-0.6B";
     }
   }
 

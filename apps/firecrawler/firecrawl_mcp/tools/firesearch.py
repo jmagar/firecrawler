@@ -7,7 +7,7 @@ and flexible result formatting following FastMCP patterns.
 """
 
 import logging
-from typing import Annotated, Any, Dict
+from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -74,7 +74,7 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
             ge=1000,
             le=300000
         ),
-        scrape_options: Dict[str, Any] | None = Field(
+        scrape_options: dict[str, Any] | None = Field(
             default=None,
             description="Optional scraping configuration (formats, headers, timeout, etc)"
         )
@@ -167,7 +167,7 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
 
             # Perform the search using the client's search method
             await ctx.info("Executing web search")
-            
+
             # Convert scrape_options dict to ScrapeOptions if needed
             scrape_opts = None
             if scrape_options:
@@ -175,7 +175,7 @@ def register_firesearch_tools(mcp: FastMCP) -> None:
                     scrape_opts = ScrapeOptions(**scrape_options)
                 else:
                     scrape_opts = scrape_options
-            
+
             search_data = client.search(
                 query=query,
                 sources=sources,

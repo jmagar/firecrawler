@@ -22,8 +22,8 @@ client integration and performance.
 from .resources import (
     get_active_operations,
     get_api_status,
-    get_config_section,
     get_component_status,
+    get_config_section,
     get_environment_config,
     get_logs_by_level,
     get_recent_logs,
@@ -37,8 +37,8 @@ from .resources import (
 __all__ = [
     "get_active_operations",
     "get_api_status",
+    "get_component_status",
     "get_config_section",
-    "get_component_status", 
     "get_environment_config",
     "get_logs_by_level",
     "get_recent_logs",

@@ -11,8 +11,6 @@ import logging
 from typing import Any, Literal
 
 from fastmcp import FastMCP
-from fastmcp.exceptions import ToolError
-from fastmcp.prompts.prompt import Message
 from pydantic import Field
 
 logger = logging.getLogger(__name__)
@@ -465,9 +463,9 @@ def content_summarization(
         "standard": "Create a comprehensive summary in 1-2 paragraphs covering the main points and key details.",
         "detailed": "Create an extensive summary with multiple paragraphs covering all significant aspects and supporting details."
     }
-    
+
     length_instruction = length_instructions.get(summary_length, length_instructions["standard"])
-    
+
     # Build focus area instructions
     focus_instructions = ""
     if focus_areas:
@@ -475,7 +473,7 @@ def content_summarization(
         focus_instructions = f"""
 FOCUS AREAS - Pay special attention to:
 {focus_list}"""
-    
+
     # Build key points instructions
     key_points_instructions = ""
     if include_key_points:
@@ -485,7 +483,7 @@ KEY POINTS EXTRACTION:
 - Identify and highlight the most important takeaways
 - Present key points in a clear, bulleted format after the summary
 - Ensure key points are actionable or informative"""
-    
+
     # Build structure preservation instructions
     structure_instructions = ""
     if preserve_structure:
@@ -495,7 +493,7 @@ STRUCTURE PRESERVATION:
 - Maintain the logical flow and organization of the original content
 - Preserve section headings and hierarchical relationships where relevant
 - Indicate the original content structure in your summary"""
-    
+
     return f"""You are a content summarization expert. Create a high-quality summary of the following {content_type} content.
 
 SUMMARY REQUIREMENTS:
@@ -540,9 +538,9 @@ def entity_recognition(
     entity_specs = []
     for entity_type in entity_types:
         entity_specs.append(f"- {entity_type}: Identify all instances of this entity type with high accuracy")
-    
+
     entity_types_text = "\n".join(entity_specs)
-    
+
     # Build relationship instructions
     relationship_instructions = ""
     if include_relationships:
@@ -553,16 +551,16 @@ RELATIONSHIP MAPPING:
 - Note the type of relationship (e.g., "works for", "located in", "manufactured by")
 - Include relationship confidence scores when possible
 - Present relationships in a clear format: Entity1 -> [relationship] -> Entity2"""
-    
+
     # Build output format instructions
     format_instructions = {
         "structured": "Return entities in a structured JSON format with categories, confidence scores, and context.",
         "inline": "Mark entities within the text using brackets and labels: [Entity Name](Entity Type).",
         "table": "Present entities in a table format with columns for Entity, Type, Context, and Confidence."
     }
-    
+
     format_instruction = format_instructions.get(output_format, format_instructions["structured"])
-    
+
     return f"""You are an expert entity recognition specialist. Extract and categorize entities from the provided content with high accuracy.
 
 ENTITY EXTRACTION REQUIREMENTS:
@@ -611,9 +609,9 @@ def context_filtering(
     factor_specs = []
     for factor in quality_factors:
         factor_specs.append(f"- {factor}: Evaluate chunks based on this quality dimension")
-    
+
     quality_factors_text = "\n".join(factor_specs)
-    
+
     # Build deduplication instructions
     dedup_instructions = ""
     if deduplication:
@@ -623,7 +621,7 @@ DEDUPLICATION:
 - Identify and remove chunks with highly overlapping content (>80% similarity)
 - When duplicates are found, prefer the chunk with higher quality or more complete information
 - Preserve unique perspectives even if they cover similar topics"""
-    
+
     # Build diversity instructions
     diversity_instructions = ""
     if preserve_diversity:
@@ -633,7 +631,7 @@ DIVERSITY PRESERVATION:
 - Ensure filtered results represent different aspects of the query topic
 - Avoid over-representation of any single source or perspective
 - Balance comprehensive coverage with focused relevance"""
-    
+
     return f"""You are a content filtering and ranking specialist. Evaluate the provided search result chunks and select the most relevant, high-quality content for the user's query.
 
 ORIGINAL QUERY: "{query}"
@@ -687,7 +685,7 @@ def alternative_approaches(
     failure_context = f"CURRENT APPROACH: {current_approach}"
     if failure_reason:
         failure_context += f"\nFAILURE REASON: {failure_reason}"
-    
+
     # Build constraints context
     constraints_context = ""
     if constraints:
@@ -695,7 +693,7 @@ def alternative_approaches(
         constraints_context = f"""
 CONSTRAINTS TO CONSIDER:
 {constraint_list}"""
-    
+
     # Build available tools context
     tools_context = ""
     if available_tools:
@@ -703,13 +701,13 @@ CONSTRAINTS TO CONSIDER:
         tools_context = f"""
 AVAILABLE ALTERNATIVES:
 {tools_list}"""
-    
+
     # Build priority factors
     priority_list = "\n".join([f"- {factor}: Consider this factor when evaluating alternatives" for factor in priority_factors])
     priority_context = f"""
 PRIORITIZATION CRITERIA:
 {priority_list}"""
-    
+
     return f"""You are a problem-solving strategist and technical advisor. Help the user find effective alternative approaches to accomplish their goal.
 
 {failure_context}
@@ -812,17 +810,17 @@ Content: {content}
 
 # Export all prompt-related functionality
 __all__ = [
-    "mcp",
-    "structured_extraction",
-    "vector_synthesis",
-    "content_analysis",
-    "error_recovery_suggestions",
-    "query_expansion",
-    "content_classification",
-    "content_summarization",
-    "entity_recognition",
-    "context_filtering",
     "alternative_approaches",
     "build_context_string",
-    "create_default_system_prompt"
+    "content_analysis",
+    "content_classification",
+    "content_summarization",
+    "context_filtering",
+    "create_default_system_prompt",
+    "entity_recognition",
+    "error_recovery_suggestions",
+    "mcp",
+    "query_expansion",
+    "structured_extraction",
+    "vector_synthesis"
 ]

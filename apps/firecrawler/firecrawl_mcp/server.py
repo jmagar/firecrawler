@@ -6,33 +6,33 @@ This module provides the main FastMCP server instance following the standard Fas
 
 import logging
 import os
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 
 # Load environment variables from root .env file (single source of truth)
 try:
-    from dotenv import load_dotenv, find_dotenv
+    from dotenv import find_dotenv, load_dotenv
     # Find and load the root .env file
     root_env = find_dotenv(usecwd=False)  # Search upward from current location
     if not root_env:
         # If not found via find_dotenv, try explicit path
         root_env = Path(__file__).parent.parent.parent.parent / ".env"
-    
+
     if Path(root_env).exists():
         load_dotenv(root_env)
         logging.info(f"Loaded environment from {root_env}")
     else:
         logging.warning(f"No .env file found at {root_env}")
-    
+
     # Optional: Load local overrides if they exist
     local_env = Path(__file__).parent.parent / ".env.local"
     if local_env.exists():
         load_dotenv(local_env, override=True)
         logging.info(f"Loaded local overrides from {local_env}")
-        
+
 except ImportError:
     logging.warning("python-dotenv not available, skipping .env file loading")
 
@@ -84,9 +84,10 @@ BEST PRACTICES:
 async def health_check(ctx: Context) -> dict[str, Any]:
     """Check server health and Firecrawl API connectivity."""
     try:
+        from datetime import UTC, datetime
+
         from firecrawl_mcp.core.client import get_client_status
-        from datetime import datetime, UTC
-        
+
         client_status = get_client_status()
 
         health_info = {
@@ -159,7 +160,7 @@ _register_all_tools()
 if __name__ == "__main__":
     # Use environment variable for transport type, default to stdio for MCP
     transport = os.getenv("FIRECRAWLER_TRANSPORT", "stdio")
-    
+
     try:
         if transport == "http":
             host = os.getenv("FIRECRAWLER_HOST", "0.0.0.0")

@@ -23,7 +23,6 @@ from firecrawl_mcp.middleware.timing import (
 )
 
 
-
 class TestPerformanceMetric:
     """Test PerformanceMetric class functionality."""
 

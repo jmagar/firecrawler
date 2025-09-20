@@ -135,8 +135,8 @@ const DEFAULT_VALUES = {
   embeddings: {
     enabled: false,
     model: "text-embedding-3-small",
-    provider: "tei",
-    dimension: 1024,
+    provider: "openai",
+    dimension: 1536,
     maxContentLength: 8000,
     minSimilarityThreshold: 0.7,
   },
@@ -263,7 +263,7 @@ function convertValue(
       }
       return value
         .split(",")
-        .map(s => s.trim())
+        .map(s => normalizeLanguage(s.trim()))
         .filter(s => s.length > 0);
     }
     case "string":

@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
-from firecrawl.v2.types import Location, MapData, MapOptions
+from firecrawl.v2.types import Location, MapData
 from firecrawl.v2.utils.error_handler import FirecrawlError
 from pydantic import Field
 
@@ -106,7 +106,7 @@ def register_map_tools(mcp: FastMCP) -> None:
 
             if not (url.startswith("http://") or url.startswith("https://")):
                 raise ToolError("URL must start with http:// or https://")
-            
+
             if len(url) > 2048:
                 raise ToolError("URL must not exceed 2048 characters")
 
@@ -128,7 +128,7 @@ def register_map_tools(mcp: FastMCP) -> None:
             if limit is not None:
                 if limit < 1 or limit > 10000:
                     raise ToolError("Limit must be between 1 and 10,000 URLs")
-            
+
             # Validate integration
             if integration and len(integration) > 100:
                 raise ToolError("Integration identifier must not exceed 100 characters")

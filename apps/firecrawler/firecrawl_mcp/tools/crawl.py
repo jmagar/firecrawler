@@ -10,7 +10,7 @@ progress reporting, and proper error handling for long-running operations.
 """
 
 import logging
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
@@ -180,9 +180,9 @@ async def _handle_crawl_start(
         await ctx.info("Submitting crawl request to Firecrawl API")
 
         # Start the crawl
-        # Convert sitemap strategy to ignore_sitemap boolean  
+        # Convert sitemap strategy to ignore_sitemap boolean
         ignore_sitemap = sitemap == "skip" if sitemap else False
-        
+
         crawl_response: CrawlResponse = firecrawl_client.start_crawl(
             url=url,
             prompt=prompt,
@@ -296,7 +296,7 @@ async def _handle_crawl_status(
                     crawled_urls.append(doc.metadata.url)
                 elif hasattr(doc, 'url') and doc.url:
                     crawled_urls.append(doc.url)
-        
+
         # Calculate progress percentage
         progress_percentage = 0
         if crawl_job.total and crawl_job.total > 0:
@@ -397,7 +397,7 @@ def register_crawl_tools(mcp: FastMCP) -> None:
             description="Crawl job ID for status checking (36-char UUID format)",
             pattern=r"^[a-f0-9\-]{36}$"
         )] = None,
-        
+
         # Crawl initiation parameters (ignored for status checking)
         prompt: Annotated[str | None, Field(
             description="Natural language prompt for AI-guided crawling",
@@ -460,7 +460,7 @@ def register_crawl_tools(mcp: FastMCP) -> None:
             description="Integration identifier",
             max_length=100
         )] = None,
-        
+
         # Status checking parameters (ignored for crawl initiation)
         auto_paginate: Annotated[bool, Field(
             description="Automatically fetch all result pages (disabled for status checks)"
@@ -474,7 +474,7 @@ def register_crawl_tools(mcp: FastMCP) -> None:
         max_wait_time: Annotated[int | None, Field(
             description="Maximum wait time for pagination", ge=1, le=300
         )] = None
-    ) -> Union[CrawlResponse, dict[str, Any]]:
+    ) -> CrawlResponse | dict[str, Any]:
         """
         Start website crawling or check crawl job status with automatic mode detection.
         
@@ -518,17 +518,17 @@ def register_crawl_tools(mcp: FastMCP) -> None:
             # Mode detection and parameter validation
             if job_id and url:
                 raise ToolError("Cannot provide both 'job_id' and 'url' - choose either crawling or status checking")
-            
+
             if not job_id and not url:
                 raise ToolError("Either 'url' (to start crawl) or 'job_id' (to check status) must be provided")
-            
+
             # Route to appropriate handler based on mode detection
             if job_id:
                 # Status checking mode
                 if any([prompt, exclude_paths, include_paths, limit, webhook]):
                     await ctx.warning("Ignoring crawl parameters in status checking mode")
                 return await _handle_crawl_status(ctx, job_id, auto_paginate, max_pages, max_results, max_wait_time)
-                
+
             elif url:
                 # Crawl initiation mode
                 if any([max_pages, max_results, max_wait_time]):
@@ -541,7 +541,7 @@ def register_crawl_tools(mcp: FastMCP) -> None:
                 )
             else:
                 raise ToolError("Invalid parameter combination")
-                
+
         except ToolError:
             raise
         except Exception as e:

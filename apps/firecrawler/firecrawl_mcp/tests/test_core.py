@@ -96,41 +96,41 @@ class TestMCPConfig:
     def test_config_validation_negative_timeout(self):
         """Test that configuration validation fails with negative timeout."""
         env_config = create_test_config(FIRECRAWL_TIMEOUT="-1")
-        
+
         with patch.dict(os.environ, env_config):
             with pytest.raises(ValueError) as exc_info:
                 MCPConfig()
-            
+
             assert "FIRECRAWL_TIMEOUT must be positive" in str(exc_info.value), f"Expected timeout validation error, got: {exc_info.value}"
 
     def test_config_validation_negative_max_retries(self):
         """Test that configuration validation fails with negative max retries."""
         env_config = create_test_config(FIRECRAWL_MAX_RETRIES="-1")
-        
+
         with patch.dict(os.environ, env_config):
             with pytest.raises(ValueError) as exc_info:
                 MCPConfig()
-            
+
             assert "FIRECRAWL_MAX_RETRIES must be non-negative" in str(exc_info.value), f"Expected max retries validation error, got: {exc_info.value}"
 
     def test_config_validation_invalid_server_port(self):
         """Test that configuration validation fails with invalid server port."""
         env_config = create_test_config(MCP_SERVER_PORT="70000")
-        
+
         with patch.dict(os.environ, env_config):
             with pytest.raises(ValueError) as exc_info:
                 MCPConfig()
-            
+
             assert "MCP_SERVER_PORT must be between 1 and 65535" in str(exc_info.value), f"Expected server port validation error, got: {exc_info.value}"
 
     def test_config_validation_invalid_temperature(self):
         """Test that configuration validation fails with invalid OpenAI temperature."""
         env_config = create_test_config(OPENAI_TEMPERATURE="3.0")
-        
+
         with patch.dict(os.environ, env_config):
             with pytest.raises(ValueError) as exc_info:
                 MCPConfig()
-            
+
             assert "OPENAI_TEMPERATURE must be between 0 and 2" in str(exc_info.value), f"Expected temperature validation error, got: {exc_info.value}"
 
     def test_config_parse_bool_default_when_not_set(self):
@@ -141,7 +141,7 @@ class TestMCPConfig:
     def test_config_parse_bool_true_values(self):
         """Test that various true values are parsed correctly."""
         true_values = ["true", "TRUE", "1", "yes", "on", "enabled"]
-        
+
         for value in true_values:
             with patch.dict(os.environ, {"TEST_VAR": value}):
                 result = MCPConfig._parse_bool("TEST_VAR", False)
@@ -150,7 +150,7 @@ class TestMCPConfig:
     def test_config_parse_bool_false_values(self):
         """Test that various false values are parsed correctly."""
         false_values = ["false", "FALSE", "0", "no", "off", "disabled", ""]
-        
+
         for value in false_values:
             with patch.dict(os.environ, {"TEST_VAR": value}):
                 result = MCPConfig._parse_bool("TEST_VAR", True)  # Use True default to ensure parsing works
@@ -478,28 +478,28 @@ class TestMCPExceptions:
         """Test that BadRequestError is mapped to MCPValidationError."""
         original_error = BadRequestError("Bad request")
         mcp_error = handle_firecrawl_error(original_error)
-        
+
         assert isinstance(mcp_error, MCPValidationError), f"Expected MCPValidationError, got {type(mcp_error).__name__}"
 
     def test_handle_firecrawl_unauthorized_error_mapping(self):
         """Test that UnauthorizedError is mapped to MCPAuthenticationError."""
         original_error = UnauthorizedError("Unauthorized")
         mcp_error = handle_firecrawl_error(original_error)
-        
+
         assert isinstance(mcp_error, MCPAuthenticationError), f"Expected MCPAuthenticationError, got {type(mcp_error).__name__}"
 
     def test_handle_firecrawl_rate_limit_error_mapping(self):
         """Test that RateLimitError is mapped to MCPRateLimitError."""
         original_error = RateLimitError("Rate limited")
         mcp_error = handle_firecrawl_error(original_error)
-        
+
         assert isinstance(mcp_error, MCPRateLimitError), f"Expected MCPRateLimitError, got {type(mcp_error).__name__}"
 
     def test_handle_firecrawl_internal_server_error_mapping(self):
         """Test that InternalServerError is mapped to MCPServerError."""
         original_error = InternalServerError("Server error")
         mcp_error = handle_firecrawl_error(original_error)
-        
+
         assert isinstance(mcp_error, MCPServerError), f"Expected MCPServerError, got {type(mcp_error).__name__}"
 
     def test_log_error_function(self, caplog):

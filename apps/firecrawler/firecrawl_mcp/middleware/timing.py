@@ -10,15 +10,11 @@ import logging
 import threading
 import time
 from collections import defaultdict, deque
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
-from fastmcp.exceptions import ToolError
-
-from ..core.config import MCPConfig
 
 logger = logging.getLogger(__name__)
 

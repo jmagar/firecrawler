@@ -7,9 +7,7 @@ with Context parameter injection for dependencies.
 """
 
 import logging
-from typing import Any
 
-from ..core.client import get_firecrawl_client
 from ..core.config import get_config
 
 logger = logging.getLogger(__name__)
@@ -27,7 +25,7 @@ def validate_url(url: str) -> bool:
     """
     if not isinstance(url, str) or not url.strip():
         return False
-    
+
     url = url.strip()
     return url.startswith(('http://', 'https://'))
 
@@ -44,20 +42,20 @@ def sanitize_filename(filename: str) -> str:
     """
     if not isinstance(filename, str):
         return "unknown_file"
-    
+
     # Remove or replace dangerous characters
     import re
-    
+
     # Replace spaces and special chars with underscores
     sanitized = re.sub(r'[^\w\-_\.]', '_', filename)
-    
+
     # Remove multiple consecutive underscores
     sanitized = re.sub(r'_{2,}', '_', sanitized)
-    
+
     # Ensure it's not empty and doesn't start with dot
     if not sanitized or sanitized.startswith('.'):
         sanitized = f"file_{sanitized}" if sanitized else "unknown_file"
-    
+
     return sanitized
 
 
@@ -73,14 +71,14 @@ def format_file_size(size_bytes: int) -> str:
     """
     if size_bytes == 0:
         return "0 B"
-    
+
     size_names = ["B", "KB", "MB", "GB", "TB"]
     import math
-    
+
     i = int(math.floor(math.log(size_bytes, 1024)))
     p = math.pow(1024, i)
     s = round(size_bytes / p, 2)
-    
+
     return f"{s} {size_names[i]}"
 
 
@@ -98,10 +96,10 @@ def truncate_text(text: str, max_length: int = 1000, suffix: str = "...") -> str
     """
     if not isinstance(text, str):
         return str(text)[:max_length]
-    
+
     if len(text) <= max_length:
         return text
-    
+
     return text[:max_length - len(suffix)] + suffix
 
 
@@ -135,18 +133,18 @@ def get_file_extension(filename: str) -> str:
     """
     if not isinstance(filename, str) or '.' not in filename:
         return ""
-    
+
     return filename.split('.')[-1].lower()
 
 
 # Re-export commonly used functions for backward compatibility
 __all__ = [
-    "validate_url",
-    "sanitize_filename", 
-    "format_file_size",
-    "truncate_text",
     "extract_domain",
-    "get_file_extension",
+    "format_file_size",
     "get_client",  # From core.client
     "get_config",  # From core.config
+    "get_file_extension",
+    "sanitize_filename",
+    "truncate_text",
+    "validate_url",
 ]

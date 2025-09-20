@@ -11,16 +11,14 @@ async patterns, intelligent parameter routing, and progress reporting.
 """
 
 import logging
-from typing import Annotated, Any, Dict, List, Union
+from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 from firecrawl.v2.types import (
-    BatchScrapeJob,
     BatchScrapeResponse,
     Document,
-    PaginationConfig,
-    ScrapeOptions,  # Still import for internal use
+    PaginationConfig,  # Still import for internal use
 )
 from firecrawl.v2.utils.error_handler import FirecrawlError
 from pydantic import Field
@@ -34,7 +32,7 @@ logger = logging.getLogger(__name__)
 async def _handle_single_scrape(
     ctx: Context,
     url: str,
-    scrape_options: Dict[str, Any] | None
+    scrape_options: dict[str, Any] | None
 ) -> Document:
     """
     Handle single URL scraping mode.
@@ -51,7 +49,7 @@ async def _handle_single_scrape(
         ToolError: If scraping fails or configuration is invalid
     """
     await ctx.info(f"Single URL scraping mode: {url}")
-    
+
     try:
         # Get the Firecrawl client
         client = get_firecrawl_client()
@@ -62,7 +60,7 @@ async def _handle_single_scrape(
 
         # Perform the scrape
         await ctx.info(f"Scraping URL with options: {scrape_options is not None}")
-        
+
         # Convert dict to ScrapeOptions if needed, or use dict directly
         scrape_kwargs = {}
         if scrape_options:
@@ -95,10 +93,10 @@ async def _handle_single_scrape(
                 }
                 # Only include non-None values
                 scrape_kwargs = {k: v for k, v in field_mapping.items() if v is not None}
-        
+
         # Debug: print what we're about to pass
         await ctx.info(f"DEBUG: Calling client.scrape with url='{url}' and kwargs: {list(scrape_kwargs.keys())}")
-        
+
         document = client.scrape(url, **scrape_kwargs)
 
         # Log success
@@ -121,8 +119,8 @@ async def _handle_single_scrape(
 
 async def _handle_batch_scrape(
     ctx: Context,
-    urls: List[str],
-    scrape_options: Dict[str, Any] | None,
+    urls: list[str],
+    scrape_options: dict[str, Any] | None,
     webhook: str | None,
     max_concurrency: int | None,
     ignore_invalid_urls: bool | None
@@ -179,7 +177,7 @@ async def _handle_batch_scrape(
             'max_concurrency': max_concurrency,
             'ignore_invalid_urls': ignore_invalid_urls
         }
-        
+
         if scrape_options:
             if isinstance(scrape_options, dict):
                 # Add dict options to kwargs
@@ -206,10 +204,10 @@ async def _handle_batch_scrape(
                     'max_age': scrape_options.max_age,
                     'store_in_cache': scrape_options.store_in_cache,
                 })
-        
+
         # Remove None values
         batch_kwargs = {k: v for k, v in batch_kwargs.items() if v is not None}
-        
+
         batch_response = client.start_batch_scrape(urls, **batch_kwargs)
 
         # Report completion
@@ -310,7 +308,7 @@ async def _handle_scrape_status(
                     scraped_urls.append(doc.metadata.url)
                 elif hasattr(doc, 'url') and doc.url:
                     scraped_urls.append(doc.url)
-        
+
         # Calculate progress percentage
         progress_percentage = 0
         if batch_job.total and batch_job.total > 0:
@@ -363,7 +361,7 @@ def register_scrape_tools(mcp: FastMCP) -> None:
         annotations={
             "title": "Website Scraper (Status mode returns summaries only)",
             "readOnlyHint": False,      # Can initiate operations
-            "destructiveHint": False,   # Safe - only extracts content  
+            "destructiveHint": False,   # Safe - only extracts content
             "openWorldHint": True,      # Accesses external websites
             "idempotentHint": False     # Results may vary between calls
         },
@@ -371,7 +369,7 @@ def register_scrape_tools(mcp: FastMCP) -> None:
         # Note: ctx is automatically handled by FastMCP and not exposed to LLM
         exclude_args=[
             "scrape_options",
-            "webhook", 
+            "webhook",
             "max_concurrency",
             "ignore_invalid_urls",
             "auto_paginate",
@@ -382,20 +380,20 @@ def register_scrape_tools(mcp: FastMCP) -> None:
     async def scrape(
         ctx: Context,
         # Mode detection parameters
-        urls: Annotated[Union[str, List[str]] | None, Field(
+        urls: Annotated[str | list[str] | None, Field(
             description="Single URL (string) or multiple URLs (list) to scrape"
         )] = None,
         job_id: Annotated[str | None, Field(
             description="Job ID for checking batch scrape status (36-char UUID format)",
             min_length=1, max_length=256
         )] = None,
-        
+
         # Shared parameters (work in all modes)
-        scrape_options: Dict[str, Any] | None = Field(
+        scrape_options: dict[str, Any] | None = Field(
             default=None,
             description="Optional scraping configuration (formats, headers, timeout, etc)"
         ),
-        
+
         # Batch-specific parameters (ignored for single URL and status)
         webhook: Annotated[str | None, Field(
             description="Webhook URL for batch completion notifications"
@@ -406,7 +404,7 @@ def register_scrape_tools(mcp: FastMCP) -> None:
         ignore_invalid_urls: Annotated[bool | None, Field(
             description="Continue processing if some URLs are invalid"
         )] = None,
-        
+
         # Status checking parameters (ignored for scraping)
         auto_paginate: Annotated[bool, Field(
             description="Automatically fetch all result pages (disabled for status checks)"
@@ -417,7 +415,7 @@ def register_scrape_tools(mcp: FastMCP) -> None:
         max_results: Annotated[int | None, Field(
             description="Maximum results to return", ge=1, le=10000
         )] = None
-    ) -> Union[Document, BatchScrapeResponse, dict[str, Any]]:
+    ) -> Document | BatchScrapeResponse | dict[str, Any]:
         """
         Scrape single or multiple URLs with automatic mode detection.
         
@@ -473,36 +471,36 @@ def register_scrape_tools(mcp: FastMCP) -> None:
                     except (ValueError, SyntaxError):
                         # Not a valid stringified list, treat as single URL
                         pass
-            
+
             # Mode detection and parameter validation
             if job_id and urls:
                 raise ToolError("Cannot provide both 'job_id' and 'urls' - choose either scraping or status checking")
-            
+
             if not job_id and not urls:
                 raise ToolError("Either 'urls' (for scraping) or 'job_id' (for status checking) must be provided")
-            
+
             # Route to appropriate handler based on mode detection
             if job_id:
                 # Status checking mode
                 if webhook or max_concurrency or ignore_invalid_urls:
                     await ctx.warning("Ignoring scraping parameters in status checking mode")
                 return await _handle_scrape_status(ctx, job_id, auto_paginate, max_pages, max_results)
-                
+
             elif isinstance(urls, str):
                 # Single URL mode
                 if webhook or max_concurrency or ignore_invalid_urls or max_pages or max_results:
                     await ctx.warning("Ignoring batch/status parameters in single URL mode")
                 return await _handle_single_scrape(ctx, urls, scrape_options)
-                
+
             elif isinstance(urls, list):
                 # Batch mode
                 if max_pages or max_results:
                     await ctx.warning("Ignoring status checking parameters in batch scraping mode")
                 return await _handle_batch_scrape(ctx, urls, scrape_options, webhook, max_concurrency, ignore_invalid_urls)
-                
+
             else:
                 raise ToolError(f"Invalid 'urls' parameter type: {type(urls)}. Must be string or list.")
-                
+
         except ToolError:
             raise
         except Exception as e:

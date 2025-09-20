@@ -13,7 +13,6 @@ import {
   validateEmbeddingDimension,
   validateModelConfiguration,
   getVectorDimension,
-  KNOWN_MODEL_DIMENSIONS,
 } from "../../lib/embedding-utils";
 import {
   searchSimilarVectors,
@@ -90,11 +89,22 @@ function buildThresholdCandidates(
       : DEFAULT_MIN_SIMILARITY_THRESHOLD,
   );
 
+  const floor1 = clampThreshold(getThresholdFloor(1));
+  const floor2 = clampThreshold(getThresholdFloor(2));
+  const floor3 = clampThreshold(getThresholdFloor(3));
+
+  // Never escalate above base when base is already <= the floor
+  const fallback = (delta: number, floor: number) => {
+    const lowered = clampThreshold(base - delta);
+    return base > floor ? Math.max(lowered, floor) : lowered;
+  };
+
   const candidates = [
     base,
-    Math.max(base - 0.1, getThresholdFloor(1)),
-    Math.max(base - 0.25, getThresholdFloor(2)),
-    getThresholdFloor(3),
+    fallback(0.1, floor1),
+    fallback(0.25, floor2),
+    // Ensure final floor never exceeds base; dedup below will remove if equal
+    Math.min(base, floor3),
   ];
   const unique: number[] = [];
 
@@ -111,7 +121,15 @@ function buildThresholdCandidates(
     unique.push(clamped);
   }
 
-  return unique;
+  // Cap the number of fallback candidates
+  const maxFallbacks = (() => {
+    const envValue = process.env.VECTOR_SEARCH_MAX_FALLBACKS;
+    if (!envValue) return 10; // Default
+    const parsed = parseInt(envValue, 10);
+    return parsed >= 1 ? parsed : 10; // Minimum 1, default on invalid
+  })();
+
+  return unique.slice(0, maxFallbacks);
 }
 
 /**
@@ -524,10 +542,11 @@ export async function vectorSearch(
       totalMs: totalTime,
     };
 
+    const THRESHOLD_COMPARISON_EPSILON = 1e-6;
     const fallbackUsed =
       thresholdHistory.length > 1 &&
       !thresholdProvided &&
-      (vectorResults.length > 0 || usedThreshold !== thresholdHistory[0]);
+      usedThreshold < thresholdHistory[0] - THRESHOLD_COMPARISON_EPSILON;
 
     // Step 7: Log metrics
     logSearchMetrics(
